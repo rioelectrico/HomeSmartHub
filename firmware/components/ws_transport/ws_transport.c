@@ -83,19 +83,6 @@ static esp_err_t send_auth_response(const portero_auth_challenge_t *challenge)
     return (n >= 0) ? ESP_OK : ESP_FAIL;
 }
 
-static void send_heartbeat_now(void)
-{
-    portero_device_heartbeat_t msg = {0};
-    snprintf(msg.boot_id, sizeof(msg.boot_id), "%s", s_boot_id);
-    msg.seq            = ++s_seq;
-    msg.uptime_seconds = (uint64_t)(esp_timer_get_time() / 1000000ULL);
-
-    static char buf[TX_BUF_SIZE]; /* static: called only from websocket task */
-    if (portero_codec_encode_device_heartbeat(&msg, buf, sizeof(buf)) == ESP_OK) {
-        esp_websocket_client_send_text(s_client, buf, (int)strlen(buf), SEND_TIMEOUT);
-    }
-}
-
 static uint32_t reconnect_delay_ms(uint8_t attempt)
 {
     /* 1 → 2 → 4 → 8 → 15 → 30 → 30 … seconds */
@@ -104,11 +91,50 @@ static uint32_t reconnect_delay_ms(uint8_t attempt)
     return tbl[attempt];
 }
 
+static void arm_reconnect(void)
+{
+    if (esp_timer_is_active(s_rc_timer)) return;
+    uint32_t delay = reconnect_delay_ms(s_rc_attempt);
+    ESP_LOGW(TAG, "Reconnect in %" PRIu32 " ms (attempt %d)", delay, s_rc_attempt);
+    s_rc_attempt++;
+    esp_timer_start_once(s_rc_timer, (uint64_t)delay * 1000ULL);
+}
+
+/* stop()+start() can block — must run outside esp_timer task */
+static void ws_reset_task(void *arg)
+{
+    (void)arg;
+    esp_websocket_client_stop(s_client);
+    esp_websocket_client_start(s_client);
+    vTaskDelete(NULL);
+}
+
 static void reconnect_timer_cb(void *arg)
 {
     (void)arg;
     ESP_LOGI(TAG, "Reconnecting (attempt %d)…", s_rc_attempt);
-    esp_websocket_client_start(s_client);
+    xTaskCreate(ws_reset_task, "ws_rst", 4096, NULL, 5, NULL);
+}
+
+static void send_heartbeat_now(void)
+{
+    portero_device_heartbeat_t msg = {0};
+    snprintf(msg.boot_id, sizeof(msg.boot_id), "%s", s_boot_id);
+    msg.seq            = ++s_seq;
+    msg.uptime_seconds = (uint64_t)(esp_timer_get_time() / 1000000ULL);
+
+    static char buf[TX_BUF_SIZE];
+    if (portero_codec_encode_device_heartbeat(&msg, buf, sizeof(buf)) != ESP_OK) return;
+
+    int n = esp_websocket_client_send_text(s_client, buf, (int)strlen(buf), SEND_TIMEOUT);
+    if (n < 0 && s_online) {
+        /* Half-open TCP: library knows send failed but won't fire DISCONNECTED.
+         * Force a stop+start cycle so the backoff reconnect takes over. */
+        ESP_LOGW(TAG, "Heartbeat send failed — forcing reconnect");
+        s_online = false;
+        esp_timer_stop(s_hb_timer);
+        arm_reconnect();
+    }
 }
 
 static void handshake_timer_cb(void *arg)
@@ -290,22 +316,17 @@ static void ws_event_handler(void *arg,
         break;
 
     case WEBSOCKET_EVENT_DISCONNECTED:
-    case WEBSOCKET_EVENT_ERROR: {
-        uint32_t delay = reconnect_delay_ms(s_rc_attempt);
-        ESP_LOGW(TAG, "Disconnected/error — reconnect in %" PRIu32 " ms (attempt %d)",
-                 delay, s_rc_attempt);
+    case WEBSOCKET_EVENT_ERROR:
         s_online = false;
         esp_timer_stop(s_hs_timer);
         esp_timer_stop(s_hb_timer);
         s_rx_len = 0;
-        s_rc_attempt++;
-        esp_timer_start_once(s_rc_timer, (uint64_t)delay * 1000ULL);
+        arm_reconnect();
         if (s_cb) {
             ws_transport_event_t ev = { .type = WS_TRANSPORT_EVENT_DISCONNECTED };
             s_cb(&ev, s_ctx);
         }
         break;
-    }
 
     default:
         break;
