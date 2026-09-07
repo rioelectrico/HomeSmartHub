@@ -350,7 +350,8 @@ esp_err_t ws_transport_start(const char *url,
     esp_websocket_client_config_t ws_cfg = {
         .uri                  = url,
         .reconnect_timeout_ms = 0,     /* backoff managed by ws_rc timer */
-        .network_timeout_ms   = 10000,
+        .network_timeout_ms   = 10000, /* ping response timeout */
+        .ping_interval_sec    = 10,    /* WS ping every 10 s — detects silent drops */
         .buffer_size          = RX_BUF_SIZE,
         .task_stack           = 32768,
     };
