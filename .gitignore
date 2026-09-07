@@ -1,0 +1,54 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+*.egg-info/
+
+# JavaScript / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime media: keep the directory marker, never uploaded media
+media/*
+!media/.gitkeep
+
+# Firmware build output and generated ESP-IDF configuration
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/esp32-p4/build/
+firmware/esp32-p4/managed_components/
+firmware/esp32-p4/sdkconfig
+firmware/esp32-p4/sdkconfig.old
+firmware/test_apps/*/build/
+firmware/test_apps/*/sdkconfig
+firmware/test_apps/*/sdkconfig.old
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Agent workspaces and implementation ledgers
+.worktrees/
+.superpowers/
