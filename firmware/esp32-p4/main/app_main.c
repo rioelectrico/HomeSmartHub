@@ -6,6 +6,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
@@ -15,10 +16,45 @@
 #include "network_manager.h"
 #include "provisioning_web.h"
 
-#define FACTORY_RESET_GPIO   GPIO_NUM_0
+#define FACTORY_RESET_GPIO    GPIO_NUM_0
 #define FACTORY_RESET_HOLD_MS 3000
 
 static const char *TAG = "portero";
+
+/* Background task: polls BOOT button while device is running.
+ * Hold for 3 s → erase NVS → restart into provisioning mode. */
+static void factory_reset_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        if (gpio_get_level(FACTORY_RESET_GPIO) == 0) {
+            ESP_LOGW(TAG, "BOOT held — keep holding 3 s for factory reset");
+            int elapsed = 0;
+            bool cancelled = false;
+            while (elapsed < FACTORY_RESET_HOLD_MS) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+                elapsed += 100;
+                if (gpio_get_level(FACTORY_RESET_GPIO) != 0) {
+                    cancelled = true;
+                    break;
+                }
+            }
+            if (!cancelled) {
+                ESP_LOGW(TAG, "Factory reset: erasing NVS and restarting");
+                provisioning_web_stop();
+                nvs_flash_erase();
+                esp_restart();
+            } else {
+                ESP_LOGI(TAG, "Factory reset cancelled");
+                /* debounce: wait until button is released */
+                while (gpio_get_level(FACTORY_RESET_GPIO) == 0) {
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                }
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
 
 static void on_network_event(network_event_type_t event,
                               const esp_netif_ip_info_t *ip,
@@ -63,7 +99,7 @@ void app_main(void)
         nvs_flash_init();
     }
 
-    /* Factory reset: hold BOOT button (GPIO 0) for 3 s at startup */
+    /* Configure BOOT button (GPIO 0) as input with pull-up */
     gpio_config_t io = {
         .pin_bit_mask = (1ULL << FACTORY_RESET_GPIO),
         .mode         = GPIO_MODE_INPUT,
@@ -72,27 +108,7 @@ void app_main(void)
         .intr_type    = GPIO_INTR_DISABLE,
     };
     gpio_config(&io);
-    if (gpio_get_level(FACTORY_RESET_GPIO) == 0) {
-        ESP_LOGW(TAG, "BOOT held — release within 3 s to cancel factory reset");
-        int elapsed = 0;
-        bool cancelled = false;
-        while (elapsed < FACTORY_RESET_HOLD_MS) {
-            vTaskDelay(pdMS_TO_TICKS(100));
-            elapsed += 100;
-            if (gpio_get_level(FACTORY_RESET_GPIO) != 0) {
-                cancelled = true;
-                break;
-            }
-        }
-        if (!cancelled) {
-            ESP_LOGW(TAG, "Factory reset: erasing NVS");
-            nvs_flash_erase();
-            nvs_flash_init();
-            ESP_LOGI(TAG, "Factory reset complete — device will enter provisioning mode");
-        } else {
-            ESP_LOGI(TAG, "Factory reset cancelled");
-        }
-    }
+    xTaskCreate(factory_reset_task, "factory_reset", 2048, NULL, 3, NULL);
 
     esp_netif_init();
     esp_event_loop_create_default();
