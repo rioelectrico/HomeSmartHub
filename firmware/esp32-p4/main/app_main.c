@@ -87,6 +87,26 @@ static void on_ws_event(const ws_transport_event_t *ev, void *ctx)
     case WS_TRANSPORT_EVENT_COMMAND:
         ESP_LOGI(TAG, "Command received: %d id=%s",
                  (int)ev->command.command, ev->command.command_id);
+        switch (ev->command.command) {
+        case PORTERO_COMMAND_DEVICE_STATUS_REQUEST:
+            ws_transport_send_command_result(ev->command.command_id,
+                                             PORTERO_RESULT_COMPLETED,
+                                             PORTERO_ERROR_CODE_NONE,
+                                             "{}");
+            break;
+        case PORTERO_COMMAND_CAMERA_CAPTURE:
+            ws_transport_send_command_result(ev->command.command_id,
+                                             PORTERO_RESULT_FAILED,
+                                             PORTERO_ERROR_CODE_CAMERA_NOT_READY,
+                                             "{}");
+            break;
+        default:
+            ws_transport_send_command_result(ev->command.command_id,
+                                             PORTERO_RESULT_FAILED,
+                                             PORTERO_ERROR_CODE_INVALID_COMMAND,
+                                             "{}");
+            break;
+        }
         break;
     }
 }

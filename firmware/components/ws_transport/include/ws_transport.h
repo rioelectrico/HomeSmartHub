@@ -42,6 +42,16 @@ esp_err_t ws_transport_stop(void);
 /** Returns true after auth.ok is received and until the next disconnect. */
 bool ws_transport_is_online(void);
 
+/**
+ * Send command.result to the backend. Must be called after receiving
+ * WS_TRANSPORT_EVENT_COMMAND. result_json is a JSON object string (e.g. "{}").
+ * Returns ESP_ERR_INVALID_STATE if not online.
+ */
+esp_err_t ws_transport_send_command_result(const char *command_id,
+                                            portero_result_status_t status,
+                                            portero_device_error_code_t error_code,
+                                            const char *result_json);
+
 #ifdef __cplusplus
 }
 #endif
