@@ -1,5 +1,6 @@
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "driver/gpio.h"
 #include "esp_chip_info.h"
@@ -12,9 +13,11 @@
 #include "nvs_flash.h"
 
 #include "board_port.h"
+#include "device_auth.h"
 #include "device_config.h"
 #include "network_manager.h"
 #include "provisioning_web.h"
+#include "ws_transport.h"
 
 #define FACTORY_RESET_GPIO    GPIO_NUM_0
 #define FACTORY_RESET_HOLD_MS 3000
@@ -42,17 +45,49 @@ static void factory_reset_task(void *arg)
             if (!cancelled) {
                 ESP_LOGW(TAG, "Factory reset: erasing NVS and restarting");
                 provisioning_web_stop();
+                ws_transport_stop();
                 nvs_flash_erase();
                 esp_restart();
             } else {
                 ESP_LOGI(TAG, "Factory reset cancelled");
-                /* debounce: wait until button is released */
                 while (gpio_get_level(FACTORY_RESET_GPIO) == 0) {
                     vTaskDelay(pdMS_TO_TICKS(50));
                 }
             }
         }
         vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+static void on_ws_event(const ws_transport_event_t *ev, void *ctx);
+
+/* Launched as a one-shot task so ws_transport_start runs with its own stack,
+ * not on the event-loop task which has only ~2 KB. */
+static void ws_start_task(void *arg)
+{
+    device_config_t *cfg = (device_config_t *)arg;
+    ws_transport_start(cfg->backend_url, cfg->device_id, cfg->secret,
+                       on_ws_event, NULL);
+    device_auth_zeroize(cfg->secret, sizeof(cfg->secret));
+    free(cfg);
+    vTaskDelete(NULL);
+}
+
+static void on_ws_event(const ws_transport_event_t *ev, void *ctx)
+{
+    (void)ctx;
+    switch (ev->type) {
+    case WS_TRANSPORT_EVENT_ONLINE:
+        ESP_LOGI(TAG, "Device ONLINE (heartbeat every %" PRIu32 " s)",
+                 ev->online.heartbeat_interval_s);
+        break;
+    case WS_TRANSPORT_EVENT_DISCONNECTED:
+        ESP_LOGW(TAG, "WebSocket disconnected — reconnecting");
+        break;
+    case WS_TRANSPORT_EVENT_COMMAND:
+        ESP_LOGI(TAG, "Command received: %d id=%s",
+                 (int)ev->command.command, ev->command.command_id);
+        break;
     }
 }
 
@@ -65,10 +100,13 @@ static void on_network_event(network_event_type_t event,
     case NETWORK_EVENT_LINK_UP:
         ESP_LOGI(TAG, "[ETH] Link up");
         break;
+
     case NETWORK_EVENT_LINK_DOWN:
         ESP_LOGI(TAG, "[ETH] Link down");
         provisioning_web_stop();
+        ws_transport_stop();
         break;
+
     case NETWORK_EVENT_GOT_IP:
         if (ip) {
             ESP_LOGI(TAG, "[ETH] IP: " IPSTR "  GW: " IPSTR,
@@ -78,12 +116,21 @@ static void on_network_event(network_event_type_t event,
             ESP_LOGI(TAG, "Device not provisioned — starting web portal");
             provisioning_web_start();
         } else {
-            ESP_LOGI(TAG, "Device provisioned — ready for WebSocket (Task 7)");
+            device_config_t *cfg = malloc(sizeof(device_config_t));
+            if (cfg && device_config_load(cfg) == ESP_OK) {
+                ESP_LOGI(TAG, "Device provisioned — connecting to backend");
+                xTaskCreate(ws_start_task, "ws_start", 6144, cfg, 5, NULL);
+            } else {
+                ESP_LOGE(TAG, "Failed to load device config");
+                free(cfg);
+            }
         }
         break;
+
     case NETWORK_EVENT_LOST_IP:
         ESP_LOGI(TAG, "[ETH] Lost IP");
         provisioning_web_stop();
+        ws_transport_stop();
         break;
     }
 }
@@ -99,7 +146,6 @@ void app_main(void)
         nvs_flash_init();
     }
 
-    /* Configure BOOT button (GPIO 0) as input with pull-up */
     gpio_config_t io = {
         .pin_bit_mask = (1ULL << FACTORY_RESET_GPIO),
         .mode         = GPIO_MODE_INPUT,
