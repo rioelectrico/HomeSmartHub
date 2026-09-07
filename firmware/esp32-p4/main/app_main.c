@@ -8,7 +8,9 @@
 #include "nvs_flash.h"
 
 #include "board_port.h"
+#include "device_config.h"
 #include "network_manager.h"
+#include "provisioning_web.h"
 
 static const char *TAG = "portero";
 
@@ -23,15 +25,23 @@ static void on_network_event(network_event_type_t event,
         break;
     case NETWORK_EVENT_LINK_DOWN:
         ESP_LOGI(TAG, "[ETH] Link down");
+        provisioning_web_stop();
         break;
     case NETWORK_EVENT_GOT_IP:
         if (ip) {
             ESP_LOGI(TAG, "[ETH] IP: " IPSTR "  GW: " IPSTR,
                      IP2STR(&ip->ip), IP2STR(&ip->gw));
         }
+        if (!device_config_is_provisioned()) {
+            ESP_LOGI(TAG, "Device not provisioned — starting web portal");
+            provisioning_web_start();
+        } else {
+            ESP_LOGI(TAG, "Device provisioned — ready for WebSocket (Task 7)");
+        }
         break;
     case NETWORK_EVENT_LOST_IP:
         ESP_LOGI(TAG, "[ETH] Lost IP");
+        provisioning_web_stop();
         break;
     }
 }
@@ -73,6 +83,6 @@ void app_main(void)
 
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
-    ESP_LOGI(TAG, "Portero FW-1 Ethernet started (model=%d rev=%d)",
+    ESP_LOGI(TAG, "Portero FW-1 started (model=%d rev=%d)",
              chip_info.model, chip_info.revision);
 }

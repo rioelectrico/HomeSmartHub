@@ -4,6 +4,7 @@ extern void run_device_auth_tests(void);
 extern void run_device_config_tests(void);
 extern void run_portero_codec_tests(void);
 extern void run_network_events_tests(void);
+extern void run_provisioning_web_tests(void);
 
 void app_main(void)
 {
@@ -12,5 +13,6 @@ void app_main(void)
     run_device_config_tests();
     run_portero_codec_tests();
     run_network_events_tests();
+    run_provisioning_web_tests();
     UNITY_END();
 }
