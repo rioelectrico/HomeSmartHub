@@ -534,6 +534,58 @@ bool ws_transport_is_online(void)
     return s_online;
 }
 
+esp_err_t ws_transport_send_ring(void)
+{
+    if (!s_client || !s_online) return ESP_ERR_INVALID_STATE;
+
+    portero_device_ring_t msg = {0};
+    snprintf(msg.boot_id, sizeof(msg.boot_id), "%s", s_boot_id);
+    msg.seq = ++s_seq;
+
+    static char buf[TX_BUF_SIZE];
+    esp_err_t err = portero_codec_encode_device_ring(&msg, buf, sizeof(buf));
+    if (err != ESP_OK) return err;
+
+    int n = esp_websocket_client_send_text(s_client, buf, (int)strlen(buf), SEND_TIMEOUT);
+    return (n >= 0) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t ws_transport_send_conversation_started(const char *stream_id)
+{
+    if (!s_client || !s_online) return ESP_ERR_INVALID_STATE;
+    if (!stream_id) return ESP_ERR_INVALID_ARG;
+
+    portero_conversation_started_t msg = {0};
+    snprintf(msg.boot_id,   sizeof(msg.boot_id),   "%s", s_boot_id);
+    snprintf(msg.stream_id, sizeof(msg.stream_id), "%s", stream_id);
+    msg.seq = ++s_seq;
+
+    static char buf[TX_BUF_SIZE];
+    esp_err_t err = portero_codec_encode_conversation_started(&msg, buf, sizeof(buf));
+    if (err != ESP_OK) return err;
+
+    int n = esp_websocket_client_send_text(s_client, buf, (int)strlen(buf), SEND_TIMEOUT);
+    return (n >= 0) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t ws_transport_send_conversation_stopped(const char *stream_id)
+{
+    if (!s_client || !s_online) return ESP_ERR_INVALID_STATE;
+    if (!stream_id) return ESP_ERR_INVALID_ARG;
+
+    portero_conversation_stopped_t msg = {0};
+    snprintf(msg.boot_id,   sizeof(msg.boot_id),   "%s", s_boot_id);
+    snprintf(msg.stream_id, sizeof(msg.stream_id), "%s", stream_id);
+    msg.seq = ++s_seq;
+
+    static char buf[TX_BUF_SIZE];
+    esp_err_t err = portero_codec_encode_conversation_stopped(&msg, buf, sizeof(buf));
+    if (err != ESP_OK) return err;
+
+    int n = esp_websocket_client_send_text(s_client, buf, (int)strlen(buf), SEND_TIMEOUT);
+    return (n >= 0) ? ESP_OK : ESP_FAIL;
+}
+
 esp_err_t ws_transport_set_binary_rx_cb(ws_transport_binary_rx_cb_t cb, void *ctx)
 {
     s_bin_cb  = cb;

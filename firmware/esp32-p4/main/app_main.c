@@ -12,10 +12,12 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
+#include "app_conversation.h"
 #include "board_audio.h"
 #include "board_port.h"
 #include "device_auth.h"
 #include "device_config.h"
+#include "esp_console.h"
 #include "network_manager.h"
 #include "provisioning_web.h"
 #include "ws_transport.h"
@@ -111,15 +113,43 @@ static void on_ws_event(const ws_transport_event_t *ev, void *ctx)
         }
         break;
     case WS_TRANSPORT_EVENT_CONVERSATION_START:
-        ESP_LOGI(TAG, "conversation.start stream=%s", ev->conversation_start.stream_id);
+        app_conversation_on_start(&ev->conversation_start);
         break;
     case WS_TRANSPORT_EVENT_CONVERSATION_STOP:
-        ESP_LOGI(TAG, "conversation.stop stream=%s", ev->conversation_stop.stream_id);
+        app_conversation_on_stop(&ev->conversation_stop);
         break;
     case WS_TRANSPORT_EVENT_CONVERSATION_AUDIO_CLEAR:
-        ESP_LOGI(TAG, "conversation.audio.clear stream=%s", ev->conversation_audio_clear.stream_id);
+        app_conversation_on_audio_clear(&ev->conversation_audio_clear);
         break;
     }
+}
+
+static int cmd_portero_ring(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    app_conversation_ring();
+    return 0;
+}
+
+static void console_init(void)
+{
+    esp_console_repl_t *repl = NULL;
+    esp_console_repl_config_t repl_cfg = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
+    repl_cfg.prompt = "portero> ";
+
+    esp_console_dev_uart_config_t uart_cfg = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_console_new_repl_uart(&uart_cfg, &repl_cfg, &repl));
+
+    esp_console_register_help_command();
+
+    const esp_console_cmd_t ring_cmd = {
+        .command = "portero-ring",
+        .help    = "Simulate doorbell ring — sends device.ring to backend",
+        .hint    = NULL,
+        .func    = cmd_portero_ring,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&ring_cmd));
+    ESP_ERROR_CHECK(esp_console_start_repl(repl));
 }
 
 static void on_network_event(network_event_type_t event,
@@ -203,6 +233,13 @@ void app_main(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "board_audio_init failed: %s", esp_err_to_name(ret));
     }
+
+    ret = app_conversation_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "app_conversation_init failed: %s", esp_err_to_name(ret));
+    }
+
+    console_init();
 
     ret = network_manager_start(on_network_event, NULL);
     if (ret != ESP_OK) {

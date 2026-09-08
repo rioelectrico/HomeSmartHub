@@ -738,6 +738,35 @@ cleanup:
     return ret;
 }
 
+/* ---- portero_codec_encode_device_ring ---- */
+
+esp_err_t portero_codec_encode_device_ring(const portero_device_ring_t *msg,
+                                            char *out, size_t out_size)
+{
+    cJSON *root = NULL;
+    esp_err_t ret;
+
+    if (!msg || !out || out_size == 0U) return ESP_ERR_INVALID_ARG;
+    if (!validate_boot_id(msg->boot_id)) return ESP_ERR_INVALID_ARG;
+    if (msg->seq > PORTERO_CODEC_MAX_SEQ) return ESP_ERR_INVALID_ARG;
+
+    root = cJSON_CreateObject();
+    if (!root) return ESP_ERR_NO_MEM;
+
+    if (!cJSON_AddStringToObject(root, "type",    "device.ring") ||
+        !cJSON_AddStringToObject(root, "boot_id", msg->boot_id)) {
+        ret = ESP_ERR_NO_MEM;
+        goto cleanup;
+    }
+    ret = add_u64(root, "seq", msg->seq);
+    if (ret != ESP_OK) goto cleanup;
+    ret = render_to_buf(root, out, out_size);
+
+cleanup:
+    cJSON_Delete(root);
+    return ret;
+}
+
 /* ---- portero_codec_encode_conversation_started ---- */
 
 esp_err_t portero_codec_encode_conversation_started(const portero_conversation_started_t *msg,

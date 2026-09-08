@@ -173,6 +173,11 @@ typedef struct {
 typedef struct {
     char     boot_id[PORTERO_CODEC_BOOT_ID_BUFFER_SIZE];
     uint64_t seq;
+} portero_device_ring_t;
+
+typedef struct {
+    char     boot_id[PORTERO_CODEC_BOOT_ID_BUFFER_SIZE];
+    uint64_t seq;
     char     stream_id[PORTERO_CODEC_STREAM_ID_BUFFER_SIZE];
 } portero_conversation_started_t;
 
@@ -242,6 +247,9 @@ esp_err_t portero_codec_decode_conversation_audio_clear(const char *json,
                                                          portero_conversation_audio_clear_t *out);
 
 /* ---- Encode: ESP32 -> backend (conversation) ---- */
+
+esp_err_t portero_codec_encode_device_ring(const portero_device_ring_t *msg,
+                                            char *out, size_t out_size);
 
 esp_err_t portero_codec_encode_conversation_started(const portero_conversation_started_t *msg,
                                                      char *out, size_t out_size);

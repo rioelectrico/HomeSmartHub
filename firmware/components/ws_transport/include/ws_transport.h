@@ -65,6 +65,24 @@ esp_err_t ws_transport_send_command_result(const char *command_id,
                                             const char *result_json);
 
 /**
+ * Send device.ring to backend (doorbell pressed).
+ * Returns ESP_ERR_INVALID_STATE if not online.
+ */
+esp_err_t ws_transport_send_ring(void);
+
+/**
+ * Send conversation.started to backend after receiving conversation.start.
+ * Returns ESP_ERR_INVALID_STATE if not online.
+ */
+esp_err_t ws_transport_send_conversation_started(const char *stream_id);
+
+/**
+ * Send conversation.stopped to backend.
+ * Returns ESP_ERR_INVALID_STATE if not online.
+ */
+esp_err_t ws_transport_send_conversation_stopped(const char *stream_id);
+
+/**
  * Register a callback for incoming binary WebSocket frames (PAUD audio from backend).
  * Safe to call before or after ws_transport_start(). ctx is passed through unchanged.
  * The callback runs in the WebSocket task — keep it short (post to a queue, do not block).
