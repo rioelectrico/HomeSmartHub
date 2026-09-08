@@ -5,6 +5,7 @@ idf_component_register(
         board_audio
         ws_transport
         portero_codec
+        paud_codec
         freertos
         log
 )
