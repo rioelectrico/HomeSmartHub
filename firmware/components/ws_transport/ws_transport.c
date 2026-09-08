@@ -21,7 +21,9 @@ static const char *TAG = "ws_transport";
 #define TX_BUF_SIZE         1024
 #define TX_CMD_RESULT_SIZE  10240
 #define RX_BUF_SIZE         12288
+#define BIN_RX_BUF_SIZE     1200   /* > PAUD_FRAME_BYTES (994) */
 #define SEND_TIMEOUT        pdMS_TO_TICKS(3000)
+#define AUDIO_SEND_TIMEOUT  pdMS_TO_TICKS(20)  /* drop audio frame if WS TX is busy */
 
 /* ---- State (all access from WebSocket task except ws_transport_is_online) ---- */
 
@@ -41,6 +43,11 @@ static char s_boot_id[DEVICE_AUTH_BOOT_ID_BUFFER_SIZE];
 
 static char s_rx_buf[RX_BUF_SIZE];
 static int  s_rx_len = 0;
+
+static ws_transport_binary_rx_cb_t s_bin_cb  = NULL;
+static void                        *s_bin_ctx = NULL;
+static uint8_t s_bin_rx_buf[BIN_RX_BUF_SIZE];
+static int     s_bin_rx_len = 0;
 
 /* ---- Helpers ---- */
 
@@ -312,6 +319,25 @@ static void ws_event_handler(void *arg,
                 handle_message(s_rx_buf);
                 s_rx_len = 0;
             }
+        } else if (d->op_code == 0x2 /* BINARY */) {
+            if (d->payload_offset == 0) {
+                s_bin_rx_len = 0;
+            }
+            int bin_space = (int)sizeof(s_bin_rx_buf) - s_bin_rx_len;
+            if (d->data_len <= bin_space) {
+                memcpy(s_bin_rx_buf + s_bin_rx_len, d->data_ptr, d->data_len);
+                s_bin_rx_len += d->data_len;
+            } else {
+                ESP_LOGW(TAG, "Binary frame too large (%d bytes) — discarding", d->payload_len);
+                s_bin_rx_len = 0;
+                break;
+            }
+            if (s_bin_rx_len == (int)d->payload_len) {
+                if (s_bin_cb) {
+                    s_bin_cb(s_bin_rx_buf, (size_t)s_bin_rx_len, s_bin_ctx);
+                }
+                s_bin_rx_len = 0;
+            }
         }
         break;
 
@@ -457,4 +483,19 @@ esp_err_t ws_transport_stop(void)
 bool ws_transport_is_online(void)
 {
     return s_online;
+}
+
+esp_err_t ws_transport_set_binary_rx_cb(ws_transport_binary_rx_cb_t cb, void *ctx)
+{
+    s_bin_cb  = cb;
+    s_bin_ctx = ctx;
+    return ESP_OK;
+}
+
+esp_err_t ws_transport_send_audio_frame(const uint8_t *data, size_t len)
+{
+    if (!s_client || !s_online) return ESP_ERR_INVALID_STATE;
+    int n = esp_websocket_client_send_bin(s_client, (const char *)data,
+                                           (int)len, AUDIO_SEND_TIMEOUT);
+    return (n >= 0) ? ESP_OK : ESP_ERR_TIMEOUT;
 }

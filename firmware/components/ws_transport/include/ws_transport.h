@@ -26,6 +26,12 @@ typedef struct {
 typedef void (*ws_transport_cb_t)(const ws_transport_event_t *ev, void *ctx);
 
 /**
+ * Callback invoked (from WebSocket task) for each complete incoming binary frame.
+ * data points into an internal static buffer valid only for the duration of the call.
+ */
+typedef void (*ws_transport_binary_rx_cb_t)(const uint8_t *data, size_t len, void *ctx);
+
+/**
  * Connect to the backend WebSocket URL and begin the auth handshake.
  * secret is copied internally and zeroized on ws_transport_stop().
  * Returns ESP_ERR_INVALID_STATE if already started.
@@ -51,6 +57,21 @@ esp_err_t ws_transport_send_command_result(const char *command_id,
                                             portero_result_status_t status,
                                             portero_device_error_code_t error_code,
                                             const char *result_json);
+
+/**
+ * Register a callback for incoming binary WebSocket frames (PAUD audio from backend).
+ * Safe to call before or after ws_transport_start(). ctx is passed through unchanged.
+ * The callback runs in the WebSocket task — keep it short (post to a queue, do not block).
+ */
+esp_err_t ws_transport_set_binary_rx_cb(ws_transport_binary_rx_cb_t cb, void *ctx);
+
+/**
+ * Send one binary WebSocket frame (a 994-byte PAUD audio frame).
+ * Non-blocking with a 20 ms timeout — drops the frame and returns ESP_ERR_TIMEOUT
+ * if the WS TX path is busy. Callers must tolerate drops (audio is real-time).
+ * Returns ESP_ERR_INVALID_STATE if not online.
+ */
+esp_err_t ws_transport_send_audio_frame(const uint8_t *data, size_t len);
 
 #ifdef __cplusplus
 }
