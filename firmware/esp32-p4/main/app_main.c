@@ -1,5 +1,4 @@
 #include <inttypes.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -26,29 +25,6 @@
 
 static const char *TAG = "portero";
 
-/* FW2-4: MIC-1 test — log RMS every ~500 ms */
-static uint32_t s_mic_frame_count = 0;
-static void mic_rx_cb(const int16_t *samples, size_t count, void *ctx)
-{
-    (void)ctx;
-    if (++s_mic_frame_count % 25 != 0) return;
-    int64_t sum = 0;
-    for (size_t i = 0; i < count; i++) sum += (int64_t)samples[i] * samples[i];
-    uint32_t rms = (uint32_t)sqrt((double)sum / count);
-    ESP_LOGI("MIC", "frame=%"PRIu32" rms=%"PRIu32, s_mic_frame_count, rms);
-}
-
-/* FW2-5: SPK-1 test — 1 kHz sine tone at 16 kHz sample rate */
-static uint32_t s_tone_phase = 0;
-static void tone_tx_cb(int16_t *samples, size_t count, void *ctx)
-{
-    (void)ctx;
-    /* 1000 Hz / 16000 Hz = 1/16 cycle per sample → phase step = 2π/16 */
-    for (size_t i = 0; i < count; i++) {
-        samples[i] = (int16_t)(8000.0f * sinf(2.0f * (float)M_PI * s_tone_phase / 16));
-        s_tone_phase = (s_tone_phase + 1) % 16;
-    }
-}
 
 /* Background task: polls BOOT button while device is running.
  * Hold for 3 s → erase NVS → restart into provisioning mode. */
@@ -214,15 +190,9 @@ void app_main(void)
         return;
     }
 
-    /* FW2-3/4: audio hardware verification — remove after MIC+SPK confirmed */
     ret = board_audio_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "board_audio_init failed: %s", esp_err_to_name(ret));
-    } else {
-        board_audio_set_rx_callback(mic_rx_cb, NULL);
-        board_audio_set_tx_callback(tone_tx_cb, NULL);
-        board_audio_pa_enable(true);
-        board_audio_start();
     }
 
     ret = network_manager_start(on_network_event, NULL);
