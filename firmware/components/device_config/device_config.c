@@ -5,6 +5,12 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 
+#if CONFIG_PORTERO_POWER_CUT_TEST
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#endif
+
 #define NVS_NAMESPACE   "portero_cfg"
 #define NVS_KEY_ACTIVE  "active"
 
@@ -12,6 +18,7 @@ static const char *s_id_keys[2]  = { "a_id",  "b_id"  };
 static const char *s_sec_keys[2] = { "a_sec", "b_sec" };
 static const char *s_url_keys[2] = { "a_url", "b_url" };
 static const char *s_ok_keys[2]  = { "a_ok",  "b_ok"  };
+static const char *s_gen_keys[2] = { "a_gen", "b_gen" };
 
 esp_err_t device_config_validate_device_id(const char *device_id)
 {
@@ -116,6 +123,14 @@ static bool slot_is_valid(nvs_handle_t handle, uint8_t slot)
     return nvs_get_u8(handle, s_ok_keys[slot], &ok) == ESP_OK && ok == 1U;
 }
 
+static uint32_t slot_generation(nvs_handle_t handle, uint8_t slot)
+{
+    uint32_t gen = 0U;
+
+    nvs_get_u32(handle, s_gen_keys[slot], &gen);
+    return gen;
+}
+
 bool device_config_is_provisioned(void)
 {
     nvs_handle_t handle;
@@ -155,12 +170,21 @@ esp_err_t device_config_load(device_config_t *out)
         return ESP_ERR_NOT_FOUND;
     }
 
-    if (slot_is_valid(handle, active)) {
-        slot = active;
-    } else {
-        /* Active slot corrupt — try alternate */
-        slot = 1U - active;
-        if (!slot_is_valid(handle, slot)) {
+    {
+        bool active_valid = slot_is_valid(handle, active);
+        bool alt_valid    = slot_is_valid(handle, 1U - active);
+
+        if (active_valid && alt_valid) {
+            /* Both slots valid — pick the one with higher generation */
+            uint32_t gen_active = slot_generation(handle, active);
+            uint32_t gen_alt    = slot_generation(handle, 1U - active);
+            slot = (gen_alt > gen_active) ? (1U - active) : active;
+        } else if (active_valid) {
+            slot = active;
+        } else if (alt_valid) {
+            /* Active slot corrupt — fall back to alternate */
+            slot = 1U - active;
+        } else {
             nvs_close(handle);
             return ESP_ERR_NOT_FOUND;
         }
@@ -223,7 +247,19 @@ esp_err_t device_config_save(const device_config_t *config)
     }
     inactive = 1U - active;
 
-    /* Write all fields to the inactive slot */
+    /* Step 1: Invalidate the inactive slot before touching its data.
+     * A power cut anywhere in the following write sequence leaves the slot
+     * marked invalid, so load() falls back to the still-valid active slot. */
+    err = nvs_set_u8(handle, s_ok_keys[inactive], 0U);
+    if (err != ESP_OK) {
+        goto done;
+    }
+    err = nvs_commit(handle);
+    if (err != ESP_OK) {
+        goto done;
+    }
+
+    /* Step 2: Write new data fields */
     err = nvs_set_str(handle, s_id_keys[inactive], config->device_id);
     if (err != ESP_OK) {
         goto done;
@@ -236,18 +272,36 @@ esp_err_t device_config_save(const device_config_t *config)
     if (err != ESP_OK) {
         goto done;
     }
+
+    /* Step 3: Write generation counter (max of both slots + 1) so load()
+     * can resolve ties when the active pointer is unavailable. */
+    {
+        uint32_t gen_a = slot_generation(handle, 0U);
+        uint32_t gen_b = slot_generation(handle, 1U);
+        uint32_t next_gen = ((gen_a > gen_b) ? gen_a : gen_b) + 1U;
+        err = nvs_set_u32(handle, s_gen_keys[inactive], next_gen);
+        if (err != ESP_OK) {
+            goto done;
+        }
+    }
+
+    /* Step 4: Mark slot valid and commit the complete new record */
     err = nvs_set_u8(handle, s_ok_keys[inactive], 1U);
     if (err != ESP_OK) {
         goto done;
     }
-
-    /* Commit data before switching active pointer */
     err = nvs_commit(handle);
     if (err != ESP_OK) {
         goto done;
     }
 
-    /* Switch active pointer */
+#if CONFIG_PORTERO_POWER_CUT_TEST
+    ESP_LOGW(NVS_NAMESPACE,
+             "[CONFIG] POWER_CUT_TEST_READY — blocking before active-pointer commit");
+    vTaskDelay(portMAX_DELAY);
+#endif
+
+    /* Step 5: Switch active pointer */
     err = nvs_set_u8(handle, NVS_KEY_ACTIVE, inactive);
     if (err != ESP_OK) {
         goto done;

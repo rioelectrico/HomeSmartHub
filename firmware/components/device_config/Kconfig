@@ -1,0 +1,13 @@
+menu "Portero Device Config"
+
+config PORTERO_POWER_CUT_TEST
+    bool "Pause before active-marker commit (laboratory only)"
+    default n
+    help
+        When enabled, device_config_save() logs POWER_CUT_TEST_READY
+        and blocks indefinitely after committing the new slot data but
+        before writing the active-slot pointer. Use this to verify
+        recovery from a power cut at that exact boundary. Disable and
+        rebuild after the test.
+
+endmenu
