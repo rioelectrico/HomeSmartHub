@@ -10,16 +10,22 @@ extern "C" {
 #endif
 
 typedef enum {
-    WS_TRANSPORT_EVENT_ONLINE,       /* auth.ok received — device is ONLINE */
-    WS_TRANSPORT_EVENT_DISCONNECTED, /* connection lost (auto-reconnect pending) */
-    WS_TRANSPORT_EVENT_COMMAND,      /* command.request received from backend */
+    WS_TRANSPORT_EVENT_ONLINE,                   /* auth.ok received — device is ONLINE */
+    WS_TRANSPORT_EVENT_DISCONNECTED,             /* connection lost (auto-reconnect pending) */
+    WS_TRANSPORT_EVENT_COMMAND,                  /* command.request received from backend */
+    WS_TRANSPORT_EVENT_CONVERSATION_START,       /* conversation.start received */
+    WS_TRANSPORT_EVENT_CONVERSATION_STOP,        /* conversation.stop received */
+    WS_TRANSPORT_EVENT_CONVERSATION_AUDIO_CLEAR, /* conversation.audio.clear received */
 } ws_transport_event_type_t;
 
 typedef struct {
     ws_transport_event_type_t type;
     union {
         struct { uint32_t heartbeat_interval_s; } online;
-        portero_command_request_t command;
+        portero_command_request_t              command;
+        portero_conversation_start_t           conversation_start;
+        portero_conversation_stop_t            conversation_stop;
+        portero_conversation_audio_clear_t     conversation_audio_clear;
     };
 } ws_transport_event_t;
 

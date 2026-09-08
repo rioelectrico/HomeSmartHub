@@ -53,6 +53,9 @@ extern "C" {
 #define PORTERO_CODEC_PAYLOAD_JSON_MAX_LEN      8192U
 #define PORTERO_CODEC_PAYLOAD_JSON_BUFFER_SIZE  (PORTERO_CODEC_PAYLOAD_JSON_MAX_LEN + 1U)
 
+#define PORTERO_CODEC_STREAM_ID_LEN             36U   /* UUID format, same as COMMAND_ID_LEN */
+#define PORTERO_CODEC_STREAM_ID_BUFFER_SIZE     (PORTERO_CODEC_STREAM_ID_LEN + 1U)
+
 #define PORTERO_CODEC_MAX_SEQ                   9223372036854775807ULL
 
 /* ---- Enums ---- */
@@ -151,6 +154,34 @@ typedef struct {
     portero_device_error_code_t error_code; /* NONE when status=completed */
 } portero_command_result_t;
 
+/* ---- Conversation structs: backend -> ESP32 (decode) ---- */
+
+typedef struct {
+    char stream_id[PORTERO_CODEC_STREAM_ID_BUFFER_SIZE];
+} portero_conversation_start_t;
+
+typedef struct {
+    char stream_id[PORTERO_CODEC_STREAM_ID_BUFFER_SIZE];
+} portero_conversation_stop_t;
+
+typedef struct {
+    char stream_id[PORTERO_CODEC_STREAM_ID_BUFFER_SIZE];
+} portero_conversation_audio_clear_t;
+
+/* ---- Conversation structs: ESP32 -> backend (encode) ---- */
+
+typedef struct {
+    char     boot_id[PORTERO_CODEC_BOOT_ID_BUFFER_SIZE];
+    uint64_t seq;
+    char     stream_id[PORTERO_CODEC_STREAM_ID_BUFFER_SIZE];
+} portero_conversation_started_t;
+
+typedef struct {
+    char     boot_id[PORTERO_CODEC_BOOT_ID_BUFFER_SIZE];
+    uint64_t seq;
+    char     stream_id[PORTERO_CODEC_STREAM_ID_BUFFER_SIZE];
+} portero_conversation_stopped_t;
+
 /* ---- Decode structs (backend -> ESP32) ---- */
 
 typedef struct {
@@ -200,6 +231,23 @@ esp_err_t portero_codec_decode_auth_ok(const char *json,
 
 esp_err_t portero_codec_decode_command_request(const char *json,
                                                 portero_command_request_t *out);
+
+esp_err_t portero_codec_decode_conversation_start(const char *json,
+                                                   portero_conversation_start_t *out);
+
+esp_err_t portero_codec_decode_conversation_stop(const char *json,
+                                                  portero_conversation_stop_t *out);
+
+esp_err_t portero_codec_decode_conversation_audio_clear(const char *json,
+                                                         portero_conversation_audio_clear_t *out);
+
+/* ---- Encode: ESP32 -> backend (conversation) ---- */
+
+esp_err_t portero_codec_encode_conversation_started(const portero_conversation_started_t *msg,
+                                                     char *out, size_t out_size);
+
+esp_err_t portero_codec_encode_conversation_stopped(const portero_conversation_stopped_t *msg,
+                                                     char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

@@ -56,7 +56,8 @@ static esp_err_t send_hello(void)
     portero_device_hello_t msg = {0};
     snprintf(msg.boot_id,   sizeof(msg.boot_id),   "%s", s_boot_id);
     snprintf(msg.device_id, sizeof(msg.device_id), "%s", s_device_id);
-    msg.capabilities_count = 0;
+    snprintf(msg.capabilities[0], sizeof(msg.capabilities[0]), "audio_pcm16_v1");
+    msg.capabilities_count = 1;
     msg.seq = 0;
 
     static char buf[TX_BUF_SIZE]; /* static: called only from websocket task */
@@ -268,6 +269,54 @@ static void handle_message(const char *json)
             ws_transport_event_t ev = {
                 .type    = WS_TRANSPORT_EVENT_COMMAND,
                 .command = cmd,
+            };
+            s_cb(&ev, s_ctx);
+        }
+
+    } else if (strcmp(type, "conversation.start") == 0) {
+        cJSON_Delete(root);
+        portero_conversation_start_t cs;
+        if (portero_codec_decode_conversation_start(json, &cs) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to decode conversation.start");
+            return;
+        }
+        ESP_LOGI(TAG, "conversation.start stream=%s", cs.stream_id);
+        if (s_cb) {
+            ws_transport_event_t ev = {
+                .type               = WS_TRANSPORT_EVENT_CONVERSATION_START,
+                .conversation_start = cs,
+            };
+            s_cb(&ev, s_ctx);
+        }
+
+    } else if (strcmp(type, "conversation.stop") == 0) {
+        cJSON_Delete(root);
+        portero_conversation_stop_t cs;
+        if (portero_codec_decode_conversation_stop(json, &cs) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to decode conversation.stop");
+            return;
+        }
+        ESP_LOGI(TAG, "conversation.stop stream=%s", cs.stream_id);
+        if (s_cb) {
+            ws_transport_event_t ev = {
+                .type              = WS_TRANSPORT_EVENT_CONVERSATION_STOP,
+                .conversation_stop = cs,
+            };
+            s_cb(&ev, s_ctx);
+        }
+
+    } else if (strcmp(type, "conversation.audio.clear") == 0) {
+        cJSON_Delete(root);
+        portero_conversation_audio_clear_t cac;
+        if (portero_codec_decode_conversation_audio_clear(json, &cac) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to decode conversation.audio.clear");
+            return;
+        }
+        ESP_LOGI(TAG, "conversation.audio.clear stream=%s", cac.stream_id);
+        if (s_cb) {
+            ws_transport_event_t ev = {
+                .type                     = WS_TRANSPORT_EVENT_CONVERSATION_AUDIO_CLEAR,
+                .conversation_audio_clear = cac,
             };
             s_cb(&ev, s_ctx);
         }

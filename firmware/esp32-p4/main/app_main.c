@@ -110,6 +110,15 @@ static void on_ws_event(const ws_transport_event_t *ev, void *ctx)
             break;
         }
         break;
+    case WS_TRANSPORT_EVENT_CONVERSATION_START:
+        ESP_LOGI(TAG, "conversation.start stream=%s", ev->conversation_start.stream_id);
+        break;
+    case WS_TRANSPORT_EVENT_CONVERSATION_STOP:
+        ESP_LOGI(TAG, "conversation.stop stream=%s", ev->conversation_stop.stream_id);
+        break;
+    case WS_TRANSPORT_EVENT_CONVERSATION_AUDIO_CLEAR:
+        ESP_LOGI(TAG, "conversation.audio.clear stream=%s", ev->conversation_audio_clear.stream_id);
+        break;
     }
 }
 

@@ -646,6 +646,126 @@ cleanup:
     return ret;
 }
 
+/* ---- Conversation decode helper ---- */
+
+static esp_err_t decode_conversation_with_stream(const char *json,
+                                                   const char *expected_type,
+                                                   char *out_stream_id)
+{
+    cJSON *root, *type_item, *sid_item;
+    esp_err_t ret = ESP_ERR_INVALID_RESPONSE;
+
+    root = cJSON_Parse(json);
+    if (!root) return ESP_ERR_INVALID_RESPONSE;
+    if (!cJSON_IsObject(root)) goto cleanup;
+    if (cJSON_GetArraySize(root) != 2) goto cleanup;
+
+    type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+    sid_item  = cJSON_GetObjectItemCaseSensitive(root, "stream_id");
+
+    if (!cJSON_IsString(type_item) || strcmp(type_item->valuestring, expected_type) != 0) goto cleanup;
+    if (!cJSON_IsString(sid_item)  || !validate_uuid(sid_item->valuestring)) goto cleanup;
+
+    strncpy(out_stream_id, sid_item->valuestring, PORTERO_CODEC_STREAM_ID_LEN);
+    out_stream_id[PORTERO_CODEC_STREAM_ID_LEN] = '\0';
+    ret = ESP_OK;
+
+cleanup:
+    cJSON_Delete(root);
+    return ret;
+}
+
+/* ---- portero_codec_decode_conversation_start ---- */
+
+esp_err_t portero_codec_decode_conversation_start(const char *json,
+                                                   portero_conversation_start_t *out)
+{
+    if (!json || !out) return ESP_ERR_INVALID_ARG;
+    memset(out, 0, sizeof(*out));
+    esp_err_t ret = decode_conversation_with_stream(json, "conversation.start", out->stream_id);
+    if (ret != ESP_OK) memset(out, 0, sizeof(*out));
+    return ret;
+}
+
+/* ---- portero_codec_decode_conversation_stop ---- */
+
+esp_err_t portero_codec_decode_conversation_stop(const char *json,
+                                                  portero_conversation_stop_t *out)
+{
+    if (!json || !out) return ESP_ERR_INVALID_ARG;
+    memset(out, 0, sizeof(*out));
+    esp_err_t ret = decode_conversation_with_stream(json, "conversation.stop", out->stream_id);
+    if (ret != ESP_OK) memset(out, 0, sizeof(*out));
+    return ret;
+}
+
+/* ---- portero_codec_decode_conversation_audio_clear ---- */
+
+esp_err_t portero_codec_decode_conversation_audio_clear(const char *json,
+                                                         portero_conversation_audio_clear_t *out)
+{
+    if (!json || !out) return ESP_ERR_INVALID_ARG;
+    memset(out, 0, sizeof(*out));
+    esp_err_t ret = decode_conversation_with_stream(json, "conversation.audio.clear", out->stream_id);
+    if (ret != ESP_OK) memset(out, 0, sizeof(*out));
+    return ret;
+}
+
+/* ---- Conversation encode helper ---- */
+
+static esp_err_t encode_conversation_event(const char *type,
+                                            const char *boot_id,
+                                            const char *stream_id,
+                                            uint64_t seq,
+                                            char *out, size_t out_size)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return ESP_ERR_NO_MEM;
+
+    esp_err_t ret;
+    if (!cJSON_AddStringToObject(root, "type",      type)      ||
+        !cJSON_AddStringToObject(root, "boot_id",   boot_id)   ||
+        !cJSON_AddStringToObject(root, "stream_id", stream_id)) {
+        ret = ESP_ERR_NO_MEM;
+        goto cleanup;
+    }
+    ret = add_u64(root, "seq", seq);
+    if (ret != ESP_OK) goto cleanup;
+    ret = render_to_buf(root, out, out_size);
+
+cleanup:
+    cJSON_Delete(root);
+    return ret;
+}
+
+/* ---- portero_codec_encode_conversation_started ---- */
+
+esp_err_t portero_codec_encode_conversation_started(const portero_conversation_started_t *msg,
+                                                     char *out, size_t out_size)
+{
+    if (!msg || !out || out_size == 0U)   return ESP_ERR_INVALID_ARG;
+    if (!validate_boot_id(msg->boot_id))  return ESP_ERR_INVALID_ARG;
+    if (msg->seq > PORTERO_CODEC_MAX_SEQ) return ESP_ERR_INVALID_ARG;
+    if (!validate_uuid(msg->stream_id))   return ESP_ERR_INVALID_ARG;
+    return encode_conversation_event("conversation.started",
+                                     msg->boot_id, msg->stream_id, msg->seq,
+                                     out, out_size);
+}
+
+/* ---- portero_codec_encode_conversation_stopped ---- */
+
+esp_err_t portero_codec_encode_conversation_stopped(const portero_conversation_stopped_t *msg,
+                                                     char *out, size_t out_size)
+{
+    if (!msg || !out || out_size == 0U)   return ESP_ERR_INVALID_ARG;
+    if (!validate_boot_id(msg->boot_id))  return ESP_ERR_INVALID_ARG;
+    if (msg->seq > PORTERO_CODEC_MAX_SEQ) return ESP_ERR_INVALID_ARG;
+    if (!validate_uuid(msg->stream_id))   return ESP_ERR_INVALID_ARG;
+    return encode_conversation_event("conversation.stopped",
+                                     msg->boot_id, msg->stream_id, msg->seq,
+                                     out, out_size);
+}
+
 /* ---- portero_codec_decode_command_request ---- */
 
 esp_err_t portero_codec_decode_command_request(const char *json,
