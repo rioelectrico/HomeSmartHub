@@ -98,19 +98,14 @@ static void mono_to_stereo(const int16_t *mono, int16_t *stereo, size_t frames)
     }
 }
 
-/* ---- I2S tasks ---- */
+/* ---- Audio tasks (use esp_codec_dev API, not raw I2S) ---- */
 
 static void rx_task(void *arg)
 {
-    size_t bytes_read = 0;
-
     while (s_running) {
-        esp_err_t err = i2s_channel_read(s_i2s_rx,
-                                          s_rx_stereo_buf,
-                                          sizeof(s_rx_stereo_buf),
-                                          &bytes_read,
-                                          pdMS_TO_TICKS(100));
-        if (err != ESP_OK || bytes_read == 0) {
+        int ret = esp_codec_dev_read(s_codec, s_rx_stereo_buf, (int)sizeof(s_rx_stereo_buf));
+        if (ret != ESP_CODEC_DEV_OK) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
         stereo_to_mono_left(s_rx_stereo_buf, s_rx_mono_buf, BOARD_AUDIO_FRAME_SAMPLES);
@@ -123,8 +118,6 @@ static void rx_task(void *arg)
 
 static void tx_task(void *arg)
 {
-    size_t bytes_written = 0;
-
     while (s_running) {
         if (s_tx_cb) {
             s_tx_cb(s_tx_mono_buf, BOARD_AUDIO_FRAME_SAMPLES, s_tx_ctx);
@@ -132,11 +125,7 @@ static void tx_task(void *arg)
             memset(s_tx_mono_buf, 0, sizeof(s_tx_mono_buf));
         }
         mono_to_stereo(s_tx_mono_buf, s_tx_stereo_buf, BOARD_AUDIO_FRAME_SAMPLES);
-        i2s_channel_write(s_i2s_tx,
-                          s_tx_stereo_buf,
-                          sizeof(s_tx_stereo_buf),
-                          &bytes_written,
-                          pdMS_TO_TICKS(100));
+        esp_codec_dev_write(s_codec, s_tx_stereo_buf, (int)sizeof(s_tx_stereo_buf));
     }
     vTaskDelete(NULL);
 }
@@ -297,9 +286,7 @@ esp_err_t board_audio_start(void)
     if (!s_initialized) return ESP_ERR_INVALID_STATE;
     if (s_running)      return ESP_ERR_INVALID_STATE;
 
-    ESP_RETURN_ON_ERROR(i2s_channel_enable(s_i2s_tx), TAG, "I2S TX enable failed");
-    ESP_RETURN_ON_ERROR(i2s_channel_enable(s_i2s_rx), TAG, "I2S RX enable failed");
-
+    /* I2S channels already enabled by esp_codec_dev_open() — just start tasks */
     s_running = true;
 
     xTaskCreate(rx_task, "audio_rx", BOARD_RX_TASK_STACK, NULL, BOARD_RX_TASK_PRIO, &s_rx_task);
@@ -318,9 +305,7 @@ esp_err_t board_audio_stop(void)
     /* Tasks check s_running and exit; give them time to stop */
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    i2s_channel_disable(s_i2s_tx);
-    i2s_channel_disable(s_i2s_rx);
-
+    /* I2S channels managed by esp_codec_dev — disable via codec close, not directly */
     board_audio_pa_enable(false);
 
     s_rx_task = NULL;
