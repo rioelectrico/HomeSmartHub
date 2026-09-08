@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
+#include "board_audio.h"
 #include "board_port.h"
 #include "device_auth.h"
 #include "device_config.h"
@@ -186,6 +187,12 @@ void app_main(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "board_port_init failed: %s", esp_err_to_name(ret));
         return;
+    }
+
+    /* FW2-3: physical ES8311 init verification — remove after confirmed */
+    ret = board_audio_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "board_audio_init failed: %s", esp_err_to_name(ret));
     }
 
     ret = network_manager_start(on_network_event, NULL);
