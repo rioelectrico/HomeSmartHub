@@ -12,9 +12,12 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
+#include "app_conversation.h"
+#include "board_audio.h"
 #include "board_port.h"
 #include "device_auth.h"
 #include "device_config.h"
+#include "esp_console.h"
 #include "network_manager.h"
 #include "provisioning_web.h"
 #include "ws_transport.h"
@@ -23,6 +26,7 @@
 #define FACTORY_RESET_HOLD_MS 3000
 
 static const char *TAG = "portero";
+
 
 /* Background task: polls BOOT button while device is running.
  * Hold for 3 s → erase NVS → restart into provisioning mode. */
@@ -83,6 +87,7 @@ static void on_ws_event(const ws_transport_event_t *ev, void *ctx)
         break;
     case WS_TRANSPORT_EVENT_DISCONNECTED:
         ESP_LOGW(TAG, "WebSocket disconnected — reconnecting");
+        app_conversation_on_disconnect();
         break;
     case WS_TRANSPORT_EVENT_COMMAND:
         ESP_LOGI(TAG, "Command received: %d id=%s",
@@ -108,6 +113,55 @@ static void on_ws_event(const ws_transport_event_t *ev, void *ctx)
             break;
         }
         break;
+    case WS_TRANSPORT_EVENT_CONVERSATION_STARTED:
+        app_conversation_on_started(&ev->conversation_started);
+        break;
+    case WS_TRANSPORT_EVENT_CONVERSATION_ENDED:
+        app_conversation_on_ended(&ev->conversation_ended);
+        break;
+    case WS_TRANSPORT_EVENT_CONVERSATION_AUDIO_CLEAR:
+        app_conversation_on_audio_clear(&ev->conversation_audio_clear);
+        break;
+    case WS_TRANSPORT_EVENT_CONVERSATION_ERROR:
+        app_conversation_on_error(&ev->conversation_error);
+        break;
+    }
+}
+
+static int cmd_portero_ring(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    app_conversation_ring();
+    return 0;
+}
+
+static void console_init(void)
+{
+    esp_err_t err;
+    esp_console_repl_t *repl = NULL;
+    esp_console_repl_config_t repl_cfg = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
+    repl_cfg.prompt = "portero> ";
+
+    esp_console_dev_uart_config_t uart_cfg = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
+    err = esp_console_new_repl_uart(&uart_cfg, &repl_cfg, &repl);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "console init failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    esp_console_register_help_command();
+
+    const esp_console_cmd_t ring_cmd = {
+        .command = "portero-ring",
+        .help    = "Simulate doorbell ring — sends device.ring to backend",
+        .hint    = NULL,
+        .func    = cmd_portero_ring,
+    };
+    esp_console_cmd_register(&ring_cmd);
+
+    err = esp_console_start_repl(repl);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "console start failed: %s", esp_err_to_name(err));
     }
 }
 
@@ -187,6 +241,20 @@ void app_main(void)
         ESP_LOGE(TAG, "board_port_init failed: %s", esp_err_to_name(ret));
         return;
     }
+
+    ret = board_audio_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "board_audio_init failed: %s", esp_err_to_name(ret));
+    } else {
+        ws_transport_set_peripheral_status(PORTERO_PERIPHERAL_READY, PORTERO_PERIPHERAL_READY);
+    }
+
+    ret = app_conversation_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "app_conversation_init failed: %s", esp_err_to_name(ret));
+    }
+
+    console_init();
 
     ret = network_manager_start(on_network_event, NULL);
     if (ret != ESP_OK) {

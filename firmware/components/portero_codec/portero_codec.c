@@ -646,6 +646,215 @@ cleanup:
     return ret;
 }
 
+/* ---- Conversation decode helper ---- */
+
+static esp_err_t decode_conversation_with_stream(const char *json,
+                                                   const char *expected_type,
+                                                   char *out_stream_id)
+{
+    cJSON *root, *type_item, *sid_item;
+    esp_err_t ret = ESP_ERR_INVALID_RESPONSE;
+
+    root = cJSON_Parse(json);
+    if (!root) return ESP_ERR_INVALID_RESPONSE;
+    if (!cJSON_IsObject(root)) goto cleanup;
+    if (cJSON_GetArraySize(root) < 2) goto cleanup;
+
+    type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+    sid_item  = cJSON_GetObjectItemCaseSensitive(root, "stream_id");
+
+    if (!cJSON_IsString(type_item) || strcmp(type_item->valuestring, expected_type) != 0) goto cleanup;
+    if (!cJSON_IsString(sid_item)  || !validate_uuid(sid_item->valuestring)) goto cleanup;
+
+    strncpy(out_stream_id, sid_item->valuestring, PORTERO_CODEC_STREAM_ID_LEN);
+    out_stream_id[PORTERO_CODEC_STREAM_ID_LEN] = '\0';
+    ret = ESP_OK;
+
+cleanup:
+    cJSON_Delete(root);
+    return ret;
+}
+
+/* ---- portero_codec_decode_conversation_audio_clear ---- */
+
+esp_err_t portero_codec_decode_conversation_audio_clear(const char *json,
+                                                         portero_conversation_audio_clear_t *out)
+{
+    if (!json || !out) return ESP_ERR_INVALID_ARG;
+    memset(out, 0, sizeof(*out));
+    esp_err_t ret = decode_conversation_with_stream(json, "conversation.audio.clear", out->stream_id);
+    if (ret != ESP_OK) memset(out, 0, sizeof(*out));
+    return ret;
+}
+
+/* ---- portero_codec_encode_conversation_start ---- */
+
+esp_err_t portero_codec_encode_conversation_start(const portero_conversation_start_req_t *msg,
+                                                   char *out, size_t out_size)
+{
+    cJSON *root = NULL;
+    esp_err_t ret;
+
+    if (!msg || !out || out_size == 0U) return ESP_ERR_INVALID_ARG;
+    if (!validate_boot_id(msg->boot_id)) return ESP_ERR_INVALID_ARG;
+    if (msg->seq > PORTERO_CODEC_MAX_SEQ) return ESP_ERR_INVALID_ARG;
+
+    root = cJSON_CreateObject();
+    if (!root) return ESP_ERR_NO_MEM;
+
+    if (!cJSON_AddStringToObject(root, "type",    "conversation.start") ||
+        !cJSON_AddStringToObject(root, "boot_id", msg->boot_id)         ||
+        !cJSON_AddNumberToObject(root, "version", 1)                     ||
+        !cJSON_AddStringToObject(root, "mode",    "hands_free")) {
+        ret = ESP_ERR_NO_MEM;
+        goto cleanup;
+    }
+    ret = add_u64(root, "seq", msg->seq);
+    if (ret != ESP_OK) goto cleanup;
+    ret = render_to_buf(root, out, out_size);
+
+cleanup:
+    cJSON_Delete(root);
+    return ret;
+}
+
+/* ---- portero_codec_decode_conversation_started ---- */
+
+esp_err_t portero_codec_decode_conversation_started(const char *json,
+                                                     portero_conversation_started_t *out)
+{
+    cJSON *root, *type_item, *cid_item, *sid_item;
+    esp_err_t ret = ESP_ERR_INVALID_RESPONSE;
+
+    if (!json || !out) return ESP_ERR_INVALID_ARG;
+    memset(out, 0, sizeof(*out));
+
+    root = cJSON_Parse(json);
+    if (!root) return ESP_ERR_INVALID_RESPONSE;
+    if (!cJSON_IsObject(root)) goto cleanup;
+    if (cJSON_GetArraySize(root) < 3) goto cleanup;
+
+    type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+    cid_item  = cJSON_GetObjectItemCaseSensitive(root, "conversation_id");
+    sid_item  = cJSON_GetObjectItemCaseSensitive(root, "stream_id");
+
+    if (!cJSON_IsString(type_item) || strcmp(type_item->valuestring, "conversation.started") != 0) goto cleanup;
+    if (!cJSON_IsString(cid_item)  || !validate_uuid(cid_item->valuestring)) goto cleanup;
+    if (!cJSON_IsString(sid_item)  || !validate_uuid(sid_item->valuestring)) goto cleanup;
+
+    strncpy(out->conversation_id, cid_item->valuestring, PORTERO_CODEC_STREAM_ID_LEN);
+    out->conversation_id[PORTERO_CODEC_STREAM_ID_LEN] = '\0';
+    strncpy(out->stream_id, sid_item->valuestring, PORTERO_CODEC_STREAM_ID_LEN);
+    out->stream_id[PORTERO_CODEC_STREAM_ID_LEN] = '\0';
+    ret = ESP_OK;
+
+cleanup:
+    cJSON_Delete(root);
+    if (ret != ESP_OK) memset(out, 0, sizeof(*out));
+    return ret;
+}
+
+/* ---- portero_codec_decode_conversation_ended ---- */
+
+esp_err_t portero_codec_decode_conversation_ended(const char *json,
+                                                   portero_conversation_ended_t *out)
+{
+    cJSON *root, *type_item, *cid_item, *outcome_item;
+    esp_err_t ret = ESP_ERR_INVALID_RESPONSE;
+
+    if (!json || !out) return ESP_ERR_INVALID_ARG;
+    memset(out, 0, sizeof(*out));
+
+    root = cJSON_Parse(json);
+    if (!root) return ESP_ERR_INVALID_RESPONSE;
+    if (!cJSON_IsObject(root)) goto cleanup;
+    if (cJSON_GetArraySize(root) < 3) goto cleanup;
+
+    type_item    = cJSON_GetObjectItemCaseSensitive(root, "type");
+    cid_item     = cJSON_GetObjectItemCaseSensitive(root, "conversation_id");
+    outcome_item = cJSON_GetObjectItemCaseSensitive(root, "outcome");
+
+    if (!cJSON_IsString(type_item) || strcmp(type_item->valuestring, "conversation.ended") != 0) goto cleanup;
+    if (!cJSON_IsString(cid_item)  || !validate_uuid(cid_item->valuestring)) goto cleanup;
+    if (!cJSON_IsString(outcome_item)) goto cleanup;
+
+    strncpy(out->conversation_id, cid_item->valuestring, PORTERO_CODEC_STREAM_ID_LEN);
+    out->conversation_id[PORTERO_CODEC_STREAM_ID_LEN] = '\0';
+    strncpy(out->outcome, outcome_item->valuestring, PORTERO_CODEC_CONV_OUTCOME_MAX_LEN);
+    out->outcome[PORTERO_CODEC_CONV_OUTCOME_MAX_LEN] = '\0';
+    ret = ESP_OK;
+
+cleanup:
+    cJSON_Delete(root);
+    if (ret != ESP_OK) memset(out, 0, sizeof(*out));
+    return ret;
+}
+
+/* ---- portero_codec_decode_conversation_error ---- */
+
+esp_err_t portero_codec_decode_conversation_error(const char *json,
+                                                    portero_conversation_error_t *out)
+{
+    cJSON *root, *type_item, *code_item;
+    esp_err_t ret = ESP_ERR_INVALID_RESPONSE;
+
+    if (!json || !out) return ESP_ERR_INVALID_ARG;
+    memset(out, 0, sizeof(*out));
+
+    root = cJSON_Parse(json);
+    if (!root) return ESP_ERR_INVALID_RESPONSE;
+    if (!cJSON_IsObject(root)) goto cleanup;
+    if (cJSON_GetArraySize(root) < 2) goto cleanup;
+
+    type_item = cJSON_GetObjectItemCaseSensitive(root, "type");
+    code_item = cJSON_GetObjectItemCaseSensitive(root, "code");
+
+    if (!cJSON_IsString(type_item) || strcmp(type_item->valuestring, "conversation.error") != 0) goto cleanup;
+    if (!cJSON_IsString(code_item)) goto cleanup;
+
+    strncpy(out->code, code_item->valuestring, PORTERO_CODEC_CONV_ERROR_CODE_MAX_LEN);
+    out->code[PORTERO_CODEC_CONV_ERROR_CODE_MAX_LEN] = '\0';
+    ret = ESP_OK;
+
+cleanup:
+    cJSON_Delete(root);
+    if (ret != ESP_OK) memset(out, 0, sizeof(*out));
+    return ret;
+}
+
+/* ---- portero_codec_encode_conversation_stop ---- */
+
+esp_err_t portero_codec_encode_conversation_stop(const portero_conversation_stop_req_t *msg,
+                                                  char *out, size_t out_size)
+{
+    cJSON *root = NULL;
+    esp_err_t ret;
+
+    if (!msg || !out || out_size == 0U)         return ESP_ERR_INVALID_ARG;
+    if (!validate_boot_id(msg->boot_id))         return ESP_ERR_INVALID_ARG;
+    if (msg->seq > PORTERO_CODEC_MAX_SEQ)        return ESP_ERR_INVALID_ARG;
+    if (!validate_uuid(msg->conversation_id))    return ESP_ERR_INVALID_ARG;
+
+    root = cJSON_CreateObject();
+    if (!root) return ESP_ERR_NO_MEM;
+
+    if (!cJSON_AddStringToObject(root, "type",            "conversation.stop")    ||
+        !cJSON_AddStringToObject(root, "boot_id",         msg->boot_id)           ||
+        !cJSON_AddNumberToObject(root, "version",         1)                      ||
+        !cJSON_AddStringToObject(root, "conversation_id", msg->conversation_id)   ||
+        !cJSON_AddStringToObject(root, "reason",          "visitor_finished")) {
+        ret = ESP_ERR_NO_MEM;
+        goto cleanup;
+    }
+    ret = add_u64(root, "seq", msg->seq);
+    if (ret != ESP_OK) goto cleanup;
+    ret = render_to_buf(root, out, out_size);
+
+cleanup:
+    cJSON_Delete(root);
+    return ret;
+}
+
 /* ---- portero_codec_decode_command_request ---- */
 
 esp_err_t portero_codec_decode_command_request(const char *json,

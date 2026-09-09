@@ -21,7 +21,9 @@ static const char *TAG = "ws_transport";
 #define TX_BUF_SIZE         1024
 #define TX_CMD_RESULT_SIZE  10240
 #define RX_BUF_SIZE         12288
+#define BIN_RX_BUF_SIZE     1200   /* > PAUD_FRAME_BYTES (994) */
 #define SEND_TIMEOUT        pdMS_TO_TICKS(3000)
+#define AUDIO_SEND_TIMEOUT  pdMS_TO_TICKS(20)  /* drop audio frame if WS TX is busy */
 
 /* ---- State (all access from WebSocket task except ws_transport_is_online) ---- */
 
@@ -33,6 +35,8 @@ static esp_timer_handle_t            s_hs_timer  = NULL; /* handshake watchdog *
 static esp_timer_handle_t            s_rc_timer  = NULL; /* reconnect backoff */
 static volatile bool                 s_online    = false;
 static uint64_t                      s_seq       = 0;
+static portero_peripheral_status_t   s_mic_status = PORTERO_PERIPHERAL_UNAVAILABLE;
+static portero_peripheral_status_t   s_spk_status = PORTERO_PERIPHERAL_UNAVAILABLE;
 static uint8_t                       s_rc_attempt = 0;   /* reconnect attempt# */
 
 static char s_device_id[PORTERO_CODEC_DEVICE_ID_BUFFER_SIZE];
@@ -42,6 +46,11 @@ static char s_boot_id[DEVICE_AUTH_BOOT_ID_BUFFER_SIZE];
 static char s_rx_buf[RX_BUF_SIZE];
 static int  s_rx_len = 0;
 
+static ws_transport_binary_rx_cb_t s_bin_cb  = NULL;
+static void                        *s_bin_ctx = NULL;
+static uint8_t s_bin_rx_buf[BIN_RX_BUF_SIZE];
+static int     s_bin_rx_len = 0;
+
 /* ---- Helpers ---- */
 
 static esp_err_t send_hello(void)
@@ -49,7 +58,8 @@ static esp_err_t send_hello(void)
     portero_device_hello_t msg = {0};
     snprintf(msg.boot_id,   sizeof(msg.boot_id),   "%s", s_boot_id);
     snprintf(msg.device_id, sizeof(msg.device_id), "%s", s_device_id);
-    msg.capabilities_count = 0;
+    snprintf(msg.capabilities[0], sizeof(msg.capabilities[0]), "audio_pcm16_v1");
+    msg.capabilities_count = 1;
     msg.seq = 0;
 
     static char buf[TX_BUF_SIZE]; /* static: called only from websocket task */
@@ -156,8 +166,8 @@ static esp_err_t send_device_status(void)
     msg.uptime_seconds  = (uint64_t)(esp_timer_get_time() / 1000000ULL);
     msg.ethernet        = PORTERO_ETHERNET_ONLINE;
     msg.camera          = PORTERO_PERIPHERAL_UNAVAILABLE;
-    msg.microphone      = PORTERO_PERIPHERAL_UNAVAILABLE;
-    msg.speaker         = PORTERO_PERIPHERAL_UNAVAILABLE;
+    msg.microphone      = s_mic_status;
+    msg.speaker         = s_spk_status;
     msg.free_heap_bytes = (uint64_t)esp_get_free_heap_size();
 
     static char buf[TX_BUF_SIZE];
@@ -265,6 +275,70 @@ static void handle_message(const char *json)
             s_cb(&ev, s_ctx);
         }
 
+    } else if (strcmp(type, "conversation.started") == 0) {
+        cJSON_Delete(root);
+        portero_conversation_started_t cs;
+        if (portero_codec_decode_conversation_started(json, &cs) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to decode conversation.started");
+            return;
+        }
+        ESP_LOGI(TAG, "conversation.started conv=%s stream=%s", cs.conversation_id, cs.stream_id);
+        if (s_cb) {
+            ws_transport_event_t ev = {
+                .type                  = WS_TRANSPORT_EVENT_CONVERSATION_STARTED,
+                .conversation_started  = cs,
+            };
+            s_cb(&ev, s_ctx);
+        }
+
+    } else if (strcmp(type, "conversation.error") == 0) {
+        cJSON_Delete(root);
+        portero_conversation_error_t ce;
+        if (portero_codec_decode_conversation_error(json, &ce) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to decode conversation.error");
+            return;
+        }
+        ESP_LOGW(TAG, "conversation.error code=%s", ce.code);
+        if (s_cb) {
+            ws_transport_event_t ev = {
+                .type               = WS_TRANSPORT_EVENT_CONVERSATION_ERROR,
+                .conversation_error = ce,
+            };
+            s_cb(&ev, s_ctx);
+        }
+
+    } else if (strcmp(type, "conversation.ended") == 0) {
+        cJSON_Delete(root);
+        portero_conversation_ended_t ce;
+        if (portero_codec_decode_conversation_ended(json, &ce) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to decode conversation.ended");
+            return;
+        }
+        ESP_LOGI(TAG, "conversation.ended conv=%s outcome=%s", ce.conversation_id, ce.outcome);
+        if (s_cb) {
+            ws_transport_event_t ev = {
+                .type                 = WS_TRANSPORT_EVENT_CONVERSATION_ENDED,
+                .conversation_ended   = ce,
+            };
+            s_cb(&ev, s_ctx);
+        }
+
+    } else if (strcmp(type, "conversation.audio.clear") == 0) {
+        cJSON_Delete(root);
+        portero_conversation_audio_clear_t cac;
+        if (portero_codec_decode_conversation_audio_clear(json, &cac) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to decode conversation.audio.clear");
+            return;
+        }
+        ESP_LOGI(TAG, "conversation.audio.clear stream=%s", cac.stream_id);
+        if (s_cb) {
+            ws_transport_event_t ev = {
+                .type                     = WS_TRANSPORT_EVENT_CONVERSATION_AUDIO_CLEAR,
+                .conversation_audio_clear = cac,
+            };
+            s_cb(&ev, s_ctx);
+        }
+
     } else {
         ESP_LOGW(TAG, "Unknown message type: %s", type);
         cJSON_Delete(root);
@@ -311,6 +385,25 @@ static void ws_event_handler(void *arg,
                 s_rx_buf[s_rx_len] = '\0';
                 handle_message(s_rx_buf);
                 s_rx_len = 0;
+            }
+        } else if (d->op_code == 0x2 /* BINARY */) {
+            if (d->payload_offset == 0) {
+                s_bin_rx_len = 0;
+            }
+            int bin_space = (int)sizeof(s_bin_rx_buf) - s_bin_rx_len;
+            if (d->data_len <= bin_space) {
+                memcpy(s_bin_rx_buf + s_bin_rx_len, d->data_ptr, d->data_len);
+                s_bin_rx_len += d->data_len;
+            } else {
+                ESP_LOGW(TAG, "Binary frame too large (%d bytes) — discarding", d->payload_len);
+                s_bin_rx_len = 0;
+                break;
+            }
+            if (s_bin_rx_len == (int)d->payload_len) {
+                if (s_bin_cb) {
+                    s_bin_cb(s_bin_rx_buf, (size_t)s_bin_rx_len, s_bin_ctx);
+                }
+                s_bin_rx_len = 0;
             }
         }
         break;
@@ -457,4 +550,60 @@ esp_err_t ws_transport_stop(void)
 bool ws_transport_is_online(void)
 {
     return s_online;
+}
+
+esp_err_t ws_transport_send_conversation_start(void)
+{
+    if (!s_client || !s_online) return ESP_ERR_INVALID_STATE;
+
+    portero_conversation_start_req_t msg = {0};
+    snprintf(msg.boot_id, sizeof(msg.boot_id), "%s", s_boot_id);
+    msg.seq = ++s_seq;
+
+    static char buf[TX_BUF_SIZE];
+    esp_err_t err = portero_codec_encode_conversation_start(&msg, buf, sizeof(buf));
+    if (err != ESP_OK) return err;
+
+    int n = esp_websocket_client_send_text(s_client, buf, (int)strlen(buf), SEND_TIMEOUT);
+    return (n >= 0) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t ws_transport_send_conversation_stop(const char *conversation_id)
+{
+    if (!s_client || !s_online) return ESP_ERR_INVALID_STATE;
+    if (!conversation_id) return ESP_ERR_INVALID_ARG;
+
+    portero_conversation_stop_req_t msg = {0};
+    snprintf(msg.boot_id,         sizeof(msg.boot_id),         "%s", s_boot_id);
+    snprintf(msg.conversation_id, sizeof(msg.conversation_id), "%s", conversation_id);
+    msg.seq = ++s_seq;
+
+    static char buf[TX_BUF_SIZE];
+    esp_err_t err = portero_codec_encode_conversation_stop(&msg, buf, sizeof(buf));
+    if (err != ESP_OK) return err;
+
+    int n = esp_websocket_client_send_text(s_client, buf, (int)strlen(buf), SEND_TIMEOUT);
+    return (n >= 0) ? ESP_OK : ESP_FAIL;
+}
+
+void ws_transport_set_peripheral_status(portero_peripheral_status_t mic,
+                                        portero_peripheral_status_t spk)
+{
+    s_mic_status = mic;
+    s_spk_status = spk;
+}
+
+esp_err_t ws_transport_set_binary_rx_cb(ws_transport_binary_rx_cb_t cb, void *ctx)
+{
+    s_bin_cb  = cb;
+    s_bin_ctx = ctx;
+    return ESP_OK;
+}
+
+esp_err_t ws_transport_send_audio_frame(const uint8_t *data, size_t len)
+{
+    if (!s_client || !s_online) return ESP_ERR_INVALID_STATE;
+    int n = esp_websocket_client_send_bin(s_client, (const char *)data,
+                                           (int)len, AUDIO_SEND_TIMEOUT);
+    return (n >= 0) ? ESP_OK : ESP_ERR_TIMEOUT;
 }
