@@ -35,6 +35,8 @@ static esp_timer_handle_t            s_hs_timer  = NULL; /* handshake watchdog *
 static esp_timer_handle_t            s_rc_timer  = NULL; /* reconnect backoff */
 static volatile bool                 s_online    = false;
 static uint64_t                      s_seq       = 0;
+static portero_peripheral_status_t   s_mic_status = PORTERO_PERIPHERAL_UNAVAILABLE;
+static portero_peripheral_status_t   s_spk_status = PORTERO_PERIPHERAL_UNAVAILABLE;
 static uint8_t                       s_rc_attempt = 0;   /* reconnect attempt# */
 
 static char s_device_id[PORTERO_CODEC_DEVICE_ID_BUFFER_SIZE];
@@ -164,8 +166,8 @@ static esp_err_t send_device_status(void)
     msg.uptime_seconds  = (uint64_t)(esp_timer_get_time() / 1000000ULL);
     msg.ethernet        = PORTERO_ETHERNET_ONLINE;
     msg.camera          = PORTERO_PERIPHERAL_UNAVAILABLE;
-    msg.microphone      = PORTERO_PERIPHERAL_UNAVAILABLE;
-    msg.speaker         = PORTERO_PERIPHERAL_UNAVAILABLE;
+    msg.microphone      = s_mic_status;
+    msg.speaker         = s_spk_status;
     msg.free_heap_bytes = (uint64_t)esp_get_free_heap_size();
 
     static char buf[TX_BUF_SIZE];
@@ -273,34 +275,50 @@ static void handle_message(const char *json)
             s_cb(&ev, s_ctx);
         }
 
-    } else if (strcmp(type, "conversation.start") == 0) {
+    } else if (strcmp(type, "conversation.started") == 0) {
         cJSON_Delete(root);
-        portero_conversation_start_t cs;
-        if (portero_codec_decode_conversation_start(json, &cs) != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to decode conversation.start");
+        portero_conversation_started_t cs;
+        if (portero_codec_decode_conversation_started(json, &cs) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to decode conversation.started");
             return;
         }
-        ESP_LOGI(TAG, "conversation.start stream=%s", cs.stream_id);
+        ESP_LOGI(TAG, "conversation.started conv=%s stream=%s", cs.conversation_id, cs.stream_id);
         if (s_cb) {
             ws_transport_event_t ev = {
-                .type               = WS_TRANSPORT_EVENT_CONVERSATION_START,
-                .conversation_start = cs,
+                .type                  = WS_TRANSPORT_EVENT_CONVERSATION_STARTED,
+                .conversation_started  = cs,
             };
             s_cb(&ev, s_ctx);
         }
 
-    } else if (strcmp(type, "conversation.stop") == 0) {
+    } else if (strcmp(type, "conversation.error") == 0) {
         cJSON_Delete(root);
-        portero_conversation_stop_t cs;
-        if (portero_codec_decode_conversation_stop(json, &cs) != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to decode conversation.stop");
+        portero_conversation_error_t ce;
+        if (portero_codec_decode_conversation_error(json, &ce) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to decode conversation.error");
             return;
         }
-        ESP_LOGI(TAG, "conversation.stop stream=%s", cs.stream_id);
+        ESP_LOGW(TAG, "conversation.error code=%s", ce.code);
         if (s_cb) {
             ws_transport_event_t ev = {
-                .type              = WS_TRANSPORT_EVENT_CONVERSATION_STOP,
-                .conversation_stop = cs,
+                .type               = WS_TRANSPORT_EVENT_CONVERSATION_ERROR,
+                .conversation_error = ce,
+            };
+            s_cb(&ev, s_ctx);
+        }
+
+    } else if (strcmp(type, "conversation.ended") == 0) {
+        cJSON_Delete(root);
+        portero_conversation_ended_t ce;
+        if (portero_codec_decode_conversation_ended(json, &ce) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to decode conversation.ended");
+            return;
+        }
+        ESP_LOGI(TAG, "conversation.ended conv=%s outcome=%s", ce.conversation_id, ce.outcome);
+        if (s_cb) {
+            ws_transport_event_t ev = {
+                .type                 = WS_TRANSPORT_EVENT_CONVERSATION_ENDED,
+                .conversation_ended   = ce,
             };
             s_cb(&ev, s_ctx);
         }
@@ -534,56 +552,45 @@ bool ws_transport_is_online(void)
     return s_online;
 }
 
-esp_err_t ws_transport_send_ring(void)
+esp_err_t ws_transport_send_conversation_start(void)
 {
     if (!s_client || !s_online) return ESP_ERR_INVALID_STATE;
 
-    portero_device_ring_t msg = {0};
+    portero_conversation_start_req_t msg = {0};
     snprintf(msg.boot_id, sizeof(msg.boot_id), "%s", s_boot_id);
     msg.seq = ++s_seq;
 
     static char buf[TX_BUF_SIZE];
-    esp_err_t err = portero_codec_encode_device_ring(&msg, buf, sizeof(buf));
+    esp_err_t err = portero_codec_encode_conversation_start(&msg, buf, sizeof(buf));
     if (err != ESP_OK) return err;
 
     int n = esp_websocket_client_send_text(s_client, buf, (int)strlen(buf), SEND_TIMEOUT);
     return (n >= 0) ? ESP_OK : ESP_FAIL;
 }
 
-esp_err_t ws_transport_send_conversation_started(const char *stream_id)
+esp_err_t ws_transport_send_conversation_stop(const char *conversation_id)
 {
     if (!s_client || !s_online) return ESP_ERR_INVALID_STATE;
-    if (!stream_id) return ESP_ERR_INVALID_ARG;
+    if (!conversation_id) return ESP_ERR_INVALID_ARG;
 
-    portero_conversation_started_t msg = {0};
-    snprintf(msg.boot_id,   sizeof(msg.boot_id),   "%s", s_boot_id);
-    snprintf(msg.stream_id, sizeof(msg.stream_id), "%s", stream_id);
+    portero_conversation_stop_req_t msg = {0};
+    snprintf(msg.boot_id,         sizeof(msg.boot_id),         "%s", s_boot_id);
+    snprintf(msg.conversation_id, sizeof(msg.conversation_id), "%s", conversation_id);
     msg.seq = ++s_seq;
 
     static char buf[TX_BUF_SIZE];
-    esp_err_t err = portero_codec_encode_conversation_started(&msg, buf, sizeof(buf));
+    esp_err_t err = portero_codec_encode_conversation_stop(&msg, buf, sizeof(buf));
     if (err != ESP_OK) return err;
 
     int n = esp_websocket_client_send_text(s_client, buf, (int)strlen(buf), SEND_TIMEOUT);
     return (n >= 0) ? ESP_OK : ESP_FAIL;
 }
 
-esp_err_t ws_transport_send_conversation_stopped(const char *stream_id)
+void ws_transport_set_peripheral_status(portero_peripheral_status_t mic,
+                                        portero_peripheral_status_t spk)
 {
-    if (!s_client || !s_online) return ESP_ERR_INVALID_STATE;
-    if (!stream_id) return ESP_ERR_INVALID_ARG;
-
-    portero_conversation_stopped_t msg = {0};
-    snprintf(msg.boot_id,   sizeof(msg.boot_id),   "%s", s_boot_id);
-    snprintf(msg.stream_id, sizeof(msg.stream_id), "%s", stream_id);
-    msg.seq = ++s_seq;
-
-    static char buf[TX_BUF_SIZE];
-    esp_err_t err = portero_codec_encode_conversation_stopped(&msg, buf, sizeof(buf));
-    if (err != ESP_OK) return err;
-
-    int n = esp_websocket_client_send_text(s_client, buf, (int)strlen(buf), SEND_TIMEOUT);
-    return (n >= 0) ? ESP_OK : ESP_FAIL;
+    s_mic_status = mic;
+    s_spk_status = spk;
 }
 
 esp_err_t ws_transport_set_binary_rx_cb(ws_transport_binary_rx_cb_t cb, void *ctx)

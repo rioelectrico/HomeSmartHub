@@ -10,6 +10,7 @@ extern "C" {
 
 typedef enum {
     CONV_STATE_IDLE,
+    CONV_STATE_STARTING, /* conversation.start sent, waiting for conversation.started */
     CONV_STATE_ACTIVE,
 } conv_state_t;
 
@@ -18,17 +19,23 @@ typedef enum {
  */
 esp_err_t app_conversation_init(void);
 
-/** Called from ws_transport callback on conversation.start. */
-void app_conversation_on_start(const portero_conversation_start_t *msg);
+/** Called from ws_transport callback on conversation.started (backend ack). */
+void app_conversation_on_started(const portero_conversation_started_t *msg);
 
-/** Called from ws_transport callback on conversation.stop. */
-void app_conversation_on_stop(const portero_conversation_stop_t *msg);
+/** Called from ws_transport callback on conversation.ended (backend terminated). */
+void app_conversation_on_ended(const portero_conversation_ended_t *msg);
 
 /** Called from ws_transport callback on conversation.audio.clear. */
 void app_conversation_on_audio_clear(const portero_conversation_audio_clear_t *msg);
 
-/** Send device.ring to backend (doorbell trigger). */
+/** Initiate a conversation (sends conversation.start to backend). */
 void app_conversation_ring(void);
+
+/** Called on WebSocket disconnect — resets FSM to IDLE and stops audio if active. */
+void app_conversation_on_disconnect(void);
+
+/** Called on conversation.error from backend — resets FSM to IDLE. */
+void app_conversation_on_error(const portero_conversation_error_t *msg);
 
 /**
  * Trigger barge-in: flush speaker buffer.

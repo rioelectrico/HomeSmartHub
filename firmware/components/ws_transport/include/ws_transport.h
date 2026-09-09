@@ -13,9 +13,10 @@ typedef enum {
     WS_TRANSPORT_EVENT_ONLINE,                   /* auth.ok received — device is ONLINE */
     WS_TRANSPORT_EVENT_DISCONNECTED,             /* connection lost (auto-reconnect pending) */
     WS_TRANSPORT_EVENT_COMMAND,                  /* command.request received from backend */
-    WS_TRANSPORT_EVENT_CONVERSATION_START,       /* conversation.start received */
-    WS_TRANSPORT_EVENT_CONVERSATION_STOP,        /* conversation.stop received */
+    WS_TRANSPORT_EVENT_CONVERSATION_STARTED,     /* conversation.started received (backend ack) */
+    WS_TRANSPORT_EVENT_CONVERSATION_ENDED,       /* conversation.ended received (backend terminated) */
     WS_TRANSPORT_EVENT_CONVERSATION_AUDIO_CLEAR, /* conversation.audio.clear received */
+    WS_TRANSPORT_EVENT_CONVERSATION_ERROR,       /* conversation.error received (backend rejected/aborted) */
 } ws_transport_event_type_t;
 
 typedef struct {
@@ -23,9 +24,10 @@ typedef struct {
     union {
         struct { uint32_t heartbeat_interval_s; } online;
         portero_command_request_t              command;
-        portero_conversation_start_t           conversation_start;
-        portero_conversation_stop_t            conversation_stop;
+        portero_conversation_started_t         conversation_started;
+        portero_conversation_ended_t           conversation_ended;
         portero_conversation_audio_clear_t     conversation_audio_clear;
+        portero_conversation_error_t           conversation_error;
     };
 } ws_transport_event_t;
 
@@ -65,22 +67,24 @@ esp_err_t ws_transport_send_command_result(const char *command_id,
                                             const char *result_json);
 
 /**
- * Send device.ring to backend (doorbell pressed).
+ * Send conversation.start to backend (device initiates conversation).
+ * Backend responds with conversation.started (WS_TRANSPORT_EVENT_CONVERSATION_STARTED).
  * Returns ESP_ERR_INVALID_STATE if not online.
  */
-esp_err_t ws_transport_send_ring(void);
+esp_err_t ws_transport_send_conversation_start(void);
 
 /**
- * Send conversation.started to backend after receiving conversation.start.
+ * Send conversation.stop to backend (device initiates termination).
  * Returns ESP_ERR_INVALID_STATE if not online.
  */
-esp_err_t ws_transport_send_conversation_started(const char *stream_id);
+esp_err_t ws_transport_send_conversation_stop(const char *conversation_id);
 
 /**
- * Send conversation.stopped to backend.
- * Returns ESP_ERR_INVALID_STATE if not online.
+ * Inform ws_transport of the current peripheral status (mic/speaker).
+ * Call after board_audio_init() to make device.status report them as ready.
  */
-esp_err_t ws_transport_send_conversation_stopped(const char *stream_id);
+void ws_transport_set_peripheral_status(portero_peripheral_status_t mic,
+                                        portero_peripheral_status_t spk);
 
 /**
  * Register a callback for incoming binary WebSocket frames (PAUD audio from backend).

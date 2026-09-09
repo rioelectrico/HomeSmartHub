@@ -29,7 +29,7 @@ static const char *TAG = "board_audio";
 #define BOARD_ES8311_I2C_ADDR  0x30  /* 8-bit write addr; library does addr>>1 internally */
 #define BOARD_I2C_PORT         I2C_NUM_0
 #define BOARD_I2S_PORT         I2S_NUM_0
-/* MCLK = SAMPLE_RATE × 384 = 16000 × 384 = 6.144 MHz */
+/* MCLK = SAMPLE_RATE × 384 = 24000 × 384 = 9.216 MHz */
 #define BOARD_MCLK_MULTIPLE    I2S_MCLK_MULTIPLE_384
 
 /* DMA: 2 buffers × 640 bytes each (320 stereo int16 samples = one 20 ms frame) */
@@ -222,12 +222,12 @@ esp_err_t board_audio_init(void)
         .channel         = 2,
         .bits_per_sample = 16,
     };
-    ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_vol(s_codec, 70),
-                        TAG, "set output volume failed");
-    ESP_RETURN_ON_ERROR(esp_codec_dev_set_in_gain(s_codec, 24.0f),
-                        TAG, "set input gain failed");
     ESP_RETURN_ON_ERROR(esp_codec_dev_open(s_codec, &fs),
                         TAG, "codec open failed");
+    ESP_RETURN_ON_ERROR(esp_codec_dev_set_out_vol(s_codec, 100),
+                        TAG, "set output volume failed");
+    ESP_RETURN_ON_ERROR(esp_codec_dev_set_in_gain(s_codec, 3.0f),
+                        TAG, "set input gain failed");
 
     s_initialized = true;
     ESP_LOGI(TAG, "board_audio init OK — ES8311 @ 0x%02X, I2S %d Hz stereo 16-bit",

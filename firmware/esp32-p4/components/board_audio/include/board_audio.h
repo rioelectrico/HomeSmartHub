@@ -19,15 +19,15 @@ extern "C" {
  *   I2S BCLK GPIO12  I2S MCLK GPIO13
  *   PA EN    GPIO53
  *
- * I2S runs stereo 16-bit @ 16 kHz internally.
+ * I2S runs stereo 16-bit @ 24 kHz internally (matches PAUD stream rate — no resampling).
  * Capture delivers mono (left channel only).
  * Playback accepts mono (duplicated to L+R for TX).
  */
 
-/* Internal sample rate for I2S and ES8311 (resampling to/from 24 kHz happens above) */
-#define BOARD_AUDIO_SAMPLE_RATE_HZ   16000
+/* Native sample rate — matches PAUD (24 kHz), no resampling required */
+#define BOARD_AUDIO_SAMPLE_RATE_HZ   24000
 /* Samples per 20 ms frame at BOARD_AUDIO_SAMPLE_RATE_HZ (mono) */
-#define BOARD_AUDIO_FRAME_SAMPLES    320
+#define BOARD_AUDIO_FRAME_SAMPLES    480
 
 /*
  * Called when the I2S RX DMA delivers a frame.
