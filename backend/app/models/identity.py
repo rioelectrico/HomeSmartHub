@@ -6,6 +6,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -123,6 +124,9 @@ class AgentConfig(Base):
     realtime_model: Mapped[str] = mapped_column(String(128), nullable=False, default="env-default")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     voice_speed: Mapped[float] = mapped_column(nullable=False, default=1.0)
+    openai_session_options: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
     system_prompt: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()

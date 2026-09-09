@@ -269,7 +269,11 @@ async def test_openai_configures_confirmed_pcm_session_and_sends_audio_once(
                         "turn_detection": {"type": "server_vad", "create_response": True},
                         "transcription": {"model": "gpt-4o-mini-transcribe", "language": "es"},
                     },
-                    "output": {"format": {"type": "audio/pcm", "rate": 24000}, "voice": "marin"},
+                    "output": {
+                        "format": {"type": "audio/pcm", "rate": 24000},
+                        "voice": "marin",
+                        "speed": 1.0,
+                    },
                 },
             },
         }

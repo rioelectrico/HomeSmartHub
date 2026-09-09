@@ -190,7 +190,7 @@ export function PorteroSimulator() {
     <main className="portero-simulator">
       <header className="portero-simulator__heading">
         <div className="portero-simulator__mark"><BellRing aria-hidden="true" /></div>
-        <div><p className="eyebrow">Portero inteligente · Simulador</p><h1>Simulador de portero</h1><p>Probá una visita por voz, manos libres.</p></div>
+        <div><p className="eyebrow">Home Smart Hub · Simulador</p><h1>Simulador de portero</h1><p>Probá una visita por voz, manos libres.</p></div>
       </header>
       <div className="portero-simulator__grid">
         <section className="panel-card" aria-labelledby="connection-title">
@@ -233,3 +233,4 @@ export function PorteroSimulator() {
     </main>
   );
 }
+

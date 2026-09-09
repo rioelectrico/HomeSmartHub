@@ -183,6 +183,12 @@ fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .resource-error .button { margin-top: 12px; }
 .agent-form { max-width: 840px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
+.agent-settings-section { margin: 24px 0; padding-top: 24px; border-top: 1px solid var(--line); }
+.agent-settings-section:first-child { margin-top: 12px; padding-top: 12px; border-top: 0; }
+.agent-settings-heading { margin-bottom: 18px; }
+.agent-settings-heading h3 { margin: 0 0 4px; font-size: 1rem; }
+.agent-settings-heading p, .field-help { margin: 0; color: var(--ink-muted); font-size: .875rem; }
+.field-help { margin-top: 6px; }
 .checkbox-field { display: flex; align-items: center; min-height: 44px; gap: 12px; margin-bottom: 20px; }
 .checkbox-field input { width: 24px; height: 24px; cursor: pointer; accent-color: var(--primary); }
 .checkbox-field label { display: flex; align-items: center; min-height: 44px; cursor: pointer; }

@@ -81,6 +81,21 @@ def _text(event: dict[str, Any], key: str) -> str:
     return value
 
 
+def _dict(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _merge_dicts(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(base)
+    for key, update in updates.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(update, dict):
+            merged[key] = _merge_dicts(current, update)
+        else:
+            merged[key] = update
+    return merged
+
+
 def _normalize(event: dict[str, Any]) -> RealtimeEvent | None:
     match event.get("type"):
         case "input_audio_buffer.speech_started":
@@ -303,33 +318,54 @@ class OpenAIRealtimeProvider(ConfiguredOpenAIRealtimeProvider):
                     close_timeout=_WEBSOCKET_CLOSE_TIMEOUT,
                     logger=_TRANSPORT_LOGGER,
                 )
+                base_session = {
+                    "type": "realtime",
+                    "model": model,
+                    "instructions": config.instructions,
+                    "output_modalities": ["audio"],
+                    "audio": {
+                        "input": {
+                            "format": {"type": "audio/pcm", "rate": 24000},
+                            "turn_detection": {
+                                "type": "server_vad",
+                                "create_response": True,
+                            },
+                            "transcription": {
+                                "model": "gpt-4o-mini-transcribe",
+                                "language": config.language.split("-")[0].lower(),
+                            },
+                        },
+                        "output": {
+                            "format": {"type": "audio/pcm", "rate": 24000},
+                            "voice": voice,
+                            "speed": config.voice_speed,
+                        },
+                    },
+                }
+                session = _merge_dicts(
+                    base_session, _dict(config.openai_session_options) if config.openai_session_options else {}
+                )
+                audio = _dict(session.get("audio"))
+                audio_input = _dict(audio.get("input"))
+                audio_output = _dict(audio.get("output"))
+                audio.setdefault("input", audio_input)
+                audio.setdefault("output", audio_output)
+                audio_input.setdefault("format", {"type": "audio/pcm", "rate": 24000})
+                audio_output.setdefault("format", {"type": "audio/pcm", "rate": 24000})
+                transcription = _dict(audio_input.get("transcription"))
+                transcription.setdefault("model", "gpt-4o-mini-transcribe")
+                transcription.setdefault("language", config.language.split("-")[0].lower())
+                audio_input["transcription"] = transcription
+                audio_output["voice"] = voice
+                audio_output["speed"] = config.voice_speed
+                audio["input"] = audio_input
+                audio["output"] = audio_output
+                session["audio"] = audio
                 await transport.send(
                     json.dumps(
                         {
                             "type": "session.update",
-                            "session": {
-                                "type": "realtime",
-                                "model": model,
-                                "instructions": config.instructions,
-                                "output_modalities": ["audio"],
-                                "audio": {
-                                    "input": {
-                                        "format": {"type": "audio/pcm", "rate": 24000},
-                                        "turn_detection": {
-                                            "type": "server_vad",
-                                            "create_response": True,
-                                        },
-                                        "transcription": {
-                                            "model": "gpt-4o-mini-transcribe",
-                                            "language": config.language.split("-")[0].lower(),
-                                        },
-                                    },
-                                    "output": {
-                                        "format": {"type": "audio/pcm", "rate": 24000},
-                                        "voice": voice,
-                                    },
-                                },
-                            },
+                            "session": session,
                         }
                     )
                 )

@@ -54,7 +54,7 @@ export default function LoginPage() {
     <main className="auth-page">
       <section className="auth-card" aria-labelledby="login-title">
         <div className="auth-card__mark" aria-hidden="true"><KeyRound /></div>
-        <p className="eyebrow">Portero inteligente</p>
+        <p className="eyebrow">Home Smart Hub</p>
         <h1 id="login-title">Ingresá a tu hogar</h1>
         <p className="auth-card__intro">Gestioná los accesos desde un único lugar seguro.</p>
         <form noValidate onSubmit={handleSubmit(onSubmit)}>

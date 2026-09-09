@@ -49,7 +49,7 @@ export function AppShell({ user, children }: AppShellProps) {
         <button ref={triggerRef} className="menu-button" type="button" aria-label="Abrir navegación" aria-expanded={drawerOpen} aria-controls={drawerOpen ? "mobile-navigation" : undefined} onClick={() => setDrawerOpen(true)}>
           <Menu aria-hidden="true" />
         </button>
-        <span className="mobile-header__title">Portero inteligente</span>
+        <span className="mobile-header__title">Home Smart Hub</span>
       </header>
       <main className="app-content">
         <header className="topbar">

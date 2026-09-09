@@ -28,6 +28,7 @@ def response_from_config(config: AgentConfig) -> AgentConfigResponse:
         voice=config.voice,
         voice_speed=config.voice_speed,
         realtime_model=config.realtime_model,
+        openai_session_options=config.openai_session_options or {},
         enabled=config.enabled,
         updated_at=config.updated_at,
     )
@@ -50,6 +51,7 @@ async def get_agent(
             voice="default",
             voice_speed=1.0,
             realtime_model="env-default",
+            openai_session_options={},
             enabled=False,
             updated_at=None,
         )

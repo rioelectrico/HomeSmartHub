@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
-from typing import Literal, Protocol
+from dataclasses import dataclass, field
+from typing import Any, Literal, Protocol
 
 from app.ai.provider import ProviderStatus
 from app.models import MessageRole
@@ -18,6 +18,8 @@ class RealtimeSessionConfig:
     instructions: str
     voice: str
     language: str
+    voice_speed: float = 1.0
+    openai_session_options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

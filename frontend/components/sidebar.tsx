@@ -39,7 +39,7 @@ export function Sidebar({ permissions = [] }: { permissions?: string[] }) {
     <aside className="sidebar" aria-label="Navegación principal">
       <div className="sidebar__brand">
         <span className="brand-mark" aria-hidden="true">P</span>
-        <span>Portero inteligente</span>
+        <span>Home Smart Hub</span>
       </div>
       <NavigationLinks permissions={permissions} />
     </aside>
@@ -80,7 +80,7 @@ export function Drawer({ onClose, permissions = [] }: DrawerProps) {
       <aside ref={drawerRef} id="mobile-navigation" className="drawer" role="dialog" aria-modal="true" aria-label="Navegación principal" onKeyDown={onKeyDown}>
         <div className="sidebar__brand">
           <span className="brand-mark" aria-hidden="true">P</span>
-          <span>Portero inteligente</span>
+          <span>Home Smart Hub</span>
           <button ref={closeButtonRef} className="sidebar__close" type="button" aria-label="Cerrar navegación" onClick={onClose}>
             <X aria-hidden="true" />
           </button>

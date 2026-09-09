@@ -306,6 +306,8 @@ class ConversationCoordinator:
                 ),
                 voice=agent.voice,
                 language=agent.language,
+                voice_speed=agent.voice_speed,
+                openai_session_options=agent.openai_session_options or {},
             )
 
     async def start(

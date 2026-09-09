@@ -27,6 +27,7 @@ export interface AgentConfig {
   voice: string;
   voice_speed: number;
   realtime_model: string;
+  openai_session_options: Record<string, unknown>;
   enabled: boolean;
   updated_at: string | null;
 }

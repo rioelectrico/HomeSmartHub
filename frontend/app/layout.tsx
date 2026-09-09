@@ -3,7 +3,7 @@ import { AuthRedirect } from "@/components/auth-redirect";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Portero inteligente",
+  title: "Home Smart Hub",
   description: "Operación segura de accesos para el hogar.",
 };
 

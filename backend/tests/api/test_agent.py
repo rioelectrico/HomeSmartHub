@@ -235,6 +235,7 @@ async def test_concurrent_initial_agent_updates_use_one_last_write_wins_row(
             "voice",
             "voice_speed",
             "realtime_model",
+            "openai_session_options",
             "enabled",
         )
     }
@@ -249,8 +250,8 @@ async def test_concurrent_initial_agent_updates_use_one_last_write_wins_row(
         ("system_prompt", "p" * 8001),
         ("voice", ""),
         ("voice", "v" * 129),
-        ("voice_speed", 0.49),
-        ("voice_speed", 2.01),
+        ("voice_speed", 0.24),
+        ("voice_speed", 1.51),
         ("name", "n" * 129),
         ("language", "l" * 33),
         ("realtime_model", "m" * 129),
