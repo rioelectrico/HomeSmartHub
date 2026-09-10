@@ -1,7 +1,7 @@
 # INFORME DE ESTADO — Portero Inteligente ESP32-P4
 
 **Fecha:** 2026-09-10  
-**Repo GitHub:** https://github.com/mod3l-io/portero
+**Repo GitHub:** https://github.com/rioelectrico/HomeSmartHub
 
 ---
 
